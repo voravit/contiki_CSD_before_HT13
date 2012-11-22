@@ -164,9 +164,6 @@ static const int16u blOffset[] = {
 *******************************************************************************/
 void Reset_Handler(void)
 {
-  // initialize the lpc17xx hardware
-  SystemInit();
-
   //Ensure there is enough margin on VREG_1V8 for stable RAM reads by
   //setting it to a code of 6.  VREG_1V2 can be left at its reset value.
   VREG = 0x00000307;

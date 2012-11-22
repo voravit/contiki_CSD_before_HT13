@@ -1,8 +1,8 @@
 
 
-ARCH= irq.c sensors.c acc-sensor.c button-sensor.c temperature-sensor.c mems.c
+ARCH= irq.c sensors.c acc-sensor.c button-sensor.c temperature-sensor.c mems.c adc_lpc17xx.c bang.c comm.c commands.c control.c uart.c utils.c system_LPC17xx.c
 
-CONTIKI_TARGET_DIRS = . dev
+CONTIKI_TARGET_DIRS = . dev adc bang comm control init uart utils 
 ifndef CONTIKI_TARGET_MAIN
 CONTIKI_TARGET_MAIN = contiki-main.c led.c button.c board.c board-mbxxx.c
 endif

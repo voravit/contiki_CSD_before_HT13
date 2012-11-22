@@ -52,6 +52,9 @@
 
 #include "contiki.h"
 
+#include "LPC17xx.h"
+#include "uart/uart.h"
+
 #include "dev/watchdog.h"
 #include "dev/leds.h"
 #include "dev/button-sensor.h"
@@ -130,9 +133,10 @@ main(void)
 {
 
   /*
-   * Initialize hardware.
+   * Initialize the lpc17xx hardware
    */
-
+  SystemInit();
+  UART0_init();
 
   /*
    * Initialize Contiki and our processes.
