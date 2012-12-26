@@ -867,7 +867,7 @@ svector_handler(void* request, void* response, uint8_t *buffer, uint16_t preferr
   else if (num && (accept[0]==REST.type.APPLICATION_JSON))
   {
     REST.set_header_content_type(response, REST.type.APPLICATION_JSON);
-    snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "{'svector':{'vout':%f, 'iout':%f, 'vin':%f, 'iin':%f 'bangState':%s}}", vout_value, iout_value, vin_value, iin_value, converter_state_string);
+    snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "{'svector':{'vout':%f, 'iout':%f, 'vin':%f, 'iin':%f, 'bangState':'%s'}}", vout_value, iout_value, vin_value, iin_value, converter_state_string);
     REST.set_response_payload(response, buffer, strlen((char *)buffer));
   }
   else
