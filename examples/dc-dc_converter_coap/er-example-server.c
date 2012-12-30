@@ -1,41 +1,3 @@
-/*
- * Copyright (c) 2011, Matthias Kovatsch and other contributors.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the Institute nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE INSTITUTE AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE INSTITUTE OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
- * SUCH DAMAGE.
- *
- * This file is part of the Contiki operating system.
- */
-
-/**
- * \file
- *      Erbium (Er) REST Engine example (with CoAP-specific code)
- * \author
- *      Matthias Kovatsch <kovatsch@inf.ethz.ch>
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,20 +7,12 @@
 
 /* Define which resources to include to meet memory constraints. */
 #define REST_RES_HELLO 0
-#define REST_RES_MIRROR 0 /* causes largest code size */
-#define REST_RES_CHUNKS 0
-#define REST_RES_SEPARATE 0
-#define REST_RES_PUSHING 0
-#define REST_RES_EVENT 0
-#define REST_RES_SUB 0
-#define REST_RES_LEDS 0
+#define REST_RES_LEDS 1
 #define REST_RES_TOGGLE 1
-#define REST_RES_LIGHT 0
-#define REST_RES_BATTERY 0
-#define REST_RES_RADIO 0
 //DC-DC converter specific resources
 #define REST_RES_SVECTOR 1
 #define REST_RES_CTRLPARAM 1
+#define REST_RES_DCDCDEBUG 1
 
 #include "erbium.h"
 #include "er-coap-07-engine.h"
@@ -66,9 +20,6 @@
 #if defined (PLATFORM_HAS_ADC)
 #include "adc-sensors.h"
 #include "bang-control.h"
-#endif
-#if defined (PLATFORM_HAS_BUTTON)
-#include "dev/button-sensor.h"
 #endif
 #if defined (PLATFORM_HAS_LEDS)
 #include "dev/leds.h"
@@ -89,71 +40,132 @@
 #define PRINTLLADDR(addr)
 #endif
 
+/**
+ * Microgrid server IP address //TODO: move to separate file
+ */
 #define SERVER_NODE(ipaddr)   uip_ip6addr(ipaddr, 0x2000, 0, 0, 0, 0, 0, 0, 0x0001)
-#define LOCAL_PORT      UIP_HTONS(COAP_DEFAULT_PORT+1)
-#define REMOTE_PORT     UIP_HTONS(COAP_DEFAULT_PORT)
-#define TOGGLE_INTERVAL 10      // Client beacon period
-uip_ipaddr_t server_ipaddr;     // microgrid server ip address
-static struct etimer et;        // timer struct for client toggling
-char* service_urls[2] = {"mgserver/hello","mgserver/requestResource"};
+#define DCDCSERNUM "dcdc1" //TODO: move to separate file
+#define LOCAL_PORT      UIP_HTONS(COAP_DEFAULT_PORT+1) //TODO: move to separate file
+#define REMOTE_PORT     UIP_HTONS(COAP_DEFAULT_PORT) //TODO: move to separate file
 
-/* This function is will be passed to COAP_BLOCKING_REQUEST() to handle responses. */
+/**
+ *	Client beacon period
+ */
+#define TOGGLE_INTERVAL 5 //TODO: move to separate file
+
+/**
+ * Interval for asynchronious CoAP sender to check for messages
+ */
+#define INTERVAL_ASYNC_COAP_SENDER 2 		//TODO: move to separate file
+uip_ipaddr_t server_ipaddr;     				// used to store destination ip address
+static struct etimer et;        				// timer struct for client toggling
+static struct etimer et2;								// timer for coap sender
+char* service_urls[2] = {"mgserver/hello","mgserver/auth"};
+static coap_packet_t requestNew[1]; 		// CoAP request packet to be sent
+int has_coap_to_send = 0;
+static int requiredVoltage;
+static int requiredCurrent;
+#define DCDC_DEBUG_REQUIREDVOLTAGE  "rV"
+#define DCDC_DEBUG_REQUIREDCURRENT "rI"
+const char * coapBuff[255]; 						// buffer for CoAP message //TODO: re-use some other buffer
+const uint8_t * authResponseOk = "{\"result\":\"ok\"}"; // Possible response to auth request
+const uint8_t * authResponseForbidden = "{\"result\":\"forbidden\"}"; // Possible response to auth request
+
+/******************************************************************************/
+#if REST_RES_DCDCDEBUG
+
+/**
+ * Resource for setting/reading debug parameters
+ * Parameters are identified by query parameter "name", value is set as POST parameter "value"
+ */
+RESOURCE(debugParams, METHOD_GET | METHOD_POST, "debug/parameters", "title=\"DebugParameters: ?len=0..\";rt=\"Text\"");
+
 void
-client_chunk_handler(void *response)
+debugParams_handler(void* request, void* response, uint8_t *buffer, uint16_t preferred_size, int32_t *offset)
 {
-  uint8_t *chunk;
+ int len = 0;
+ const char *name = NULL;
+ const char *value = NULL;
+ int success = 0;
+ int coap_method = REST.get_method_type(request);
+ PRINTF("DEBUG command method:%d\n", coap_method);
 
-  int len = coap_get_payload(response, &chunk);
-  printf("|%.*s", len, (char *)chunk);
+ if ((len=REST.get_query_variable(request, "name", &name))) {
+	 if (coap_method == METHOD_POST && REST.get_post_variable(request, "value", &value))
+	 {
+		 if (strncmp(name, DCDC_DEBUG_REQUIREDVOLTAGE, len)==0)
+		 {
+			 requiredVoltage = atoi(value);
+			 success = 1;
+		 } else if (strncmp(name, DCDC_DEBUG_REQUIREDCURRENT, len)==0)
+		 {
+			 requiredCurrent = atoi(value);
+			 success = 1;
+		 }
+		 } else if (coap_method == METHOD_GET) {
+			 if (strncmp(name, DCDC_DEBUG_REQUIREDVOLTAGE, len)==0)
+		 {
+				 snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "%d", requiredVoltage);
+			 success = 1;
+		 } else if (strncmp(name, DCDC_DEBUG_REQUIREDCURRENT, len)==0)
+		 {
+			 snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "%d", requiredCurrent);
+			 success = 1;
+		 }
+			 if (success) {
+				 REST.set_header_content_type(response, REST.type.TEXT_PLAIN);
+				 REST.set_response_payload(response, buffer, strlen((char *)buffer));
+			 }
+	 }
+
+ } else {
+	 PRINTF("Parameter name not provided");
+	 snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "Parameter name not provided");
+	 REST.set_response_payload(response, buffer, strlen((char *)buffer));
+	 REST.set_response_status(response, REST.status.BAD_REQUEST);
+ }
+
+ if (!success) {
+	 REST.set_response_status(response, REST.status.BAD_REQUEST);
+ }
 }
 
-PROCESS(dcdc_client, "DCDC client");
-PROCESS_THREAD(dcdc_client, ev, data)
+/******************************************************************************/
+// Instruct board to send authorize message to the server
+// POST parameters : "rV" - requested voltage, "rI" - requested current
+RESOURCE(debugauthorize, METHOD_POST, "debug/authorize", "title=\"Hello world: ?len=0..\";rt=\"Text\"");
+
+void
+debugauthorize_handler(void* request, void* response, uint8_t *buffer, uint16_t preferred_size, int32_t *offset)
 {
-  PROCESS_BEGIN();
+ PRINTF("DEBUG command !!!!, authorize V:%d, I:%d\n", requiredVoltage, requiredCurrent);
 
-  static coap_packet_t request[1]; /* This way the packet can be treated as pointer as usual. */
-  SERVER_NODE(&server_ipaddr);
+ PRINTF("--Creating async CoAP message--\n");
 
-  /* receives all CoAP messages */
-  printf("--Initializing coap receiver--\n");
-  coap_receiver_init();
+ /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
+ coap_init_message(requestNew, COAP_TYPE_CON, COAP_POST, 0 );
+ coap_set_header_uri_path(requestNew, service_urls[1]);
 
-  etimer_set(&et, TOGGLE_INTERVAL * CLOCK_SECOND);
+ /* Set Proxy URI*/
+ coap_set_header_proxy_uri(requestNew, "http://mgserver/auth");
 
-  while(1) {
-    PROCESS_YIELD();
+ /* Set Content type to JSON*/
+ coap_set_header_content_type(requestNew, REST.type.APPLICATION_JSON);
 
-    if (etimer_expired(&et)) {
-      printf("--Sending beacon to mgserver--\n");
+ /* Set Payload content as a JSON string*/
+ int len = snprintf((char *)coapBuff, REST_MAX_CHUNK_SIZE, "{\"sernum\":\"%s\",\"voltageRequested\":%d,\"currentRequested\":%d}", DCDCSERNUM, requiredVoltage, requiredCurrent);
+ coap_set_payload(requestNew, (uint8_t *)coapBuff, strlen((char *)coapBuff));
 
-      /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
-      coap_init_message(request, COAP_TYPE_CON, COAP_POST, 0 );
-      coap_set_header_uri_path(request, service_urls[0]);
+ // Print coapBuffer contents
+ printf("|%.*s", len, (char *)coapBuff);
+ has_coap_to_send = 1;
+ PRINTF("--Done--\n");
 
-      /* Set Proxy URI*/
-      coap_set_header_proxy_uri(request, "http://mgserver/hello");
-
-      /* Set Content type to JSON*/
-      coap_set_header_content_type(request, REST.type.APPLICATION_JSON);
-
-      /* Set Payload content as a JSON string*/
-      const char msg[] = "{\"sernum\":\"dcdcnode1\"}";
-      coap_set_payload(request, (uint8_t *)msg, sizeof(msg)-1);
-
-      PRINT6ADDR(&server_ipaddr);
-      PRINTF(" : %u\n", UIP_HTONS(REMOTE_PORT));
-
-      COAP_BLOCKING_REQUEST(&server_ipaddr, REMOTE_PORT, request, client_chunk_handler);
-
-      printf("\n--Done--\n");
-
-      etimer_reset(&et);
-    }
-  }
-
-  PROCESS_END();
+ REST.set_response_status(response, REST.status.OK);
 }
+
+#endif
+
 /******************************************************************************/
 #if REST_RES_HELLO
 /*
@@ -191,6 +203,7 @@ helloworld_handler(void* request, void* response, uint8_t *buffer, uint16_t pref
   REST.set_response_payload(response, buffer, length);
 }
 #endif
+
 
 /******************************************************************************/
 #if defined (PLATFORM_HAS_LEDS)
@@ -310,7 +323,7 @@ RESOURCE(ctrlparam, METHOD_GET | METHOD_POST, "dc-dc/controlParameters", "title=
 void
 ctrlparam_handler(void* request, void* response, uint8_t *buffer, uint16_t preferred_size, int32_t *offset)
 {
-  const char *variable = NULL;
+	const char *variable = NULL;
   int coap_method = coap_get_rest_method(request);
   PRINTF("Received dc-dc/ctrlParameters request:%d\n", coap_method);
   if (coap_method == METHOD_POST)
@@ -398,9 +411,130 @@ ctrlparam_handler(void* request, void* response, uint8_t *buffer, uint16_t prefe
 
 #endif /* PLATFOR_HAS_ADC */
 
+/**
+ * Handler for power authorization response
+ */
+void
+auth_response_handler(void *response)
+{
+	uint8_t *chunk;
+	coap_get_payload(response, &chunk);
+	PRINTF("Received response length: %d\n", len);
+	if (strcmp(chunk, authResponseOk) == 0) {
+		PRINTF("Received AUTHORIZED\n");
+		leds_on(LEDS_GREEN);
+		// Turn on power out
+	} else {
+		PRINTF("Received FORBIDDEN");
+		leds_off(LEDS_GREEN);
+		// TUrn off power out
+	}
+}
+
+/**
+ * Process for asynchroniously sending CoAP messages. Check variable has_coap_to_send and send CoAP request saved in requestNew
+ * WARNING Doesn't have a queue, last CoAP request wil be sent
+ */
+PROCESS(dcdc_coap_sender, "DCDC coap sender");
+PROCESS_THREAD(dcdc_coap_sender, ev, data)
+{
+  PROCESS_BEGIN();
+
+  SERVER_NODE(&server_ipaddr);
+
+  /* receives all CoAP messages */
+  printf("--Initializing CoAP async sender--\n");
+  coap_receiver_init();
+
+  etimer_set(&et, INTERVAL_ASYNC_COAP_SENDER * CLOCK_SECOND);
+
+  while(1) {
+   PROCESS_YIELD();
+
+   if (etimer_expired(&et)) {
+       if (has_coap_to_send) {
+         printf("--Sending async CoAP message--\n");
+         COAP_BLOCKING_REQUEST(&server_ipaddr, REMOTE_PORT, requestNew, auth_response_handler);
+         has_coap_to_send = 0;
+         printf("--Done--\n");
+
+       } else {
+               printf("--No messages found for sending--\n");
+       }
+       etimer_reset(&et);
+   }
+
+  }
+
+  PROCESS_END();
+}
+
+/**
+ * Handler for power authorization response
+ */
+void
+beacon_response_handler(void *response)
+{
+	uint8_t *chunk;
+	coap_get_payload(response, &chunk);
+	PRINTF("Received response length: %d\n", len);
+}
+
+/**
+ * DCDC beacon client, periodically sends it's status vector to the microgrid server
+ */
+PROCESS(dcdc_client, "DCDC beacon client");
+PROCESS_THREAD(dcdc_client, ev, data)
+{
+  PROCESS_BEGIN();
+
+  static coap_packet_t request[1]; /* This way the packet can be treated as pointer as usual. */
+  SERVER_NODE(&server_ipaddr);
+
+  etimer_set(&et2, TOGGLE_INTERVAL * CLOCK_SECOND);
+
+  while(1) {
+   PROCESS_YIELD();
+
+   if (etimer_expired(&et2)) {
+     PRINTF("--Sending beacon to mgserver--\n");
+
+     /* prepare request, TID is set by COAP_BLOCKING_REQUEST() */
+     coap_init_message(request, COAP_TYPE_CON, COAP_POST, 0 );
+     coap_set_header_uri_path(request, service_urls[0]);
+
+     /* Set Proxy URI*/
+     coap_set_header_proxy_uri(request, "http://mgserver/hello");
+
+     /* Set Content type to JSON*/
+     coap_set_header_content_type(request, REST.type.APPLICATION_JSON);
+
+     /* Set Payload content as a JSON string*/
+     char  * buffer[255];
+     float vout_value= dc_converter_get_svector_parameter(SVECTOR_SENSOR_VOUT);
+     float iout_value= dc_converter_get_svector_parameter(SVECTOR_SENSOR_IOUT);
+     float vin_value= dc_converter_get_svector_parameter(SVECTOR_SENSOR_VIN);
+     float iin_value= iout_value;
+     char * converter_state_string=dc_converter_get_algorithm_state_string();
+		 int len = snprintf((char *) buffer, 255,
+						"{\"sernum\":\"%s\", \"voltageOut\":%f,\"currentOut\":%f,\"voltageIn\":%f,\"currentIn\":%f,\"bangState\":\"%s\"}",
+						DCDCSERNUM, vout_value, iout_value, vin_value, iin_value, converter_state_string);
+     coap_set_payload(request, (uint8_t *)buffer, len);
+
+     COAP_BLOCKING_REQUEST(&server_ipaddr, REMOTE_PORT, request, beacon_response_handler);
+
+     PRINTF("\n--Done--\n");
+
+     etimer_reset(&et2);
+   }
+  }
+
+  PROCESS_END();
+}
+
 
 PROCESS(rest_server_example, "DCDC CONVERTER COAP CLIENT");
-AUTOSTART_PROCESSES(&rest_server_example, &dcdc_client);
+AUTOSTART_PROCESSES(&rest_server_example, &dcdc_coap_sender, &dcdc_client);
 
 PROCESS_THREAD(rest_server_example, ev, data)
 {
@@ -433,6 +567,10 @@ PROCESS_THREAD(rest_server_example, ev, data)
 #endif
 #if defined (PLATFORM_HAS_ADC) && REST_RES_CTRLPARAM
   rest_activate_resource(&resource_ctrlparam);
+#endif
+#if REST_RES_DCDCDEBUG
+  rest_activate_resource(&resource_debugauthorize);
+  rest_activate_resource(&resource_debugParams);
 #endif
 
   /* Define application-specific events here. */
