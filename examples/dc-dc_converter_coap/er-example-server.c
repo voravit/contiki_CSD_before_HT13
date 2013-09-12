@@ -64,8 +64,11 @@
 #include "er-coap-07-engine.h"
 
 #if defined (PLATFORM_HAS_ADC)
-#include "adc-sensors.h"
-#include "bang-control.h"
+//#include "adc-sensors.h"
+//#include "bang-control.h"
+#include "adc.h"
+#include "bang.h"
+#include "control.h"
 #endif
 #if defined (PLATFORM_HAS_BUTTON)
 #include "dev/button-sensor.h"
@@ -132,6 +135,9 @@ PROCESS_THREAD(dcdc_client, ev, data)
 
   static coap_packet_t request[1]; /* This way the packet can be treated as pointer as usual. */
   SERVER_NODE(&server_ipaddr);
+
+printf("CLOCK_SECOND %d\n",CLOCK_SECOND);
+printf("RTIMER_ARCH_SECOND %d\n",RTIMER_ARCH_SECOND);
 
   /* receives all CoAP messages */
   printf("--Initializing coap receiver--\n");
@@ -841,11 +847,11 @@ RESOURCE(svector, METHOD_GET, "dc-dc/stateVector", "title=\"State vector of the 
 void
 svector_handler(void* request, void* response, uint8_t *buffer, uint16_t preferred_size, int32_t *offset)
 {
-  float vout_value= dc_converter_get_svector_parameter(SVECTOR_SENSOR_VOUT);
-  float iout_value= dc_converter_get_svector_parameter(SVECTOR_SENSOR_IOUT);
-  float vin_value= dc_converter_get_svector_parameter(SVECTOR_SENSOR_VIN);
-  float iin_value= iout_value;
-  char * converter_state_string=dc_converter_get_algorithm_state_string();
+  float vout_value= get_svector(VOUT);
+  float iout_value= get_svector(IOUT);
+  float vin_value= get_svector(VIN);
+  float iin_value= get_svector(IIN);
+  char * converter_state_string= get_converter_state();
 
   const uint16_t *accept = NULL;
   int num = REST.get_header_accept(request, &accept);
@@ -889,21 +895,21 @@ ctrlparam_handler(void* request, void* response, uint8_t *buffer, uint16_t prefe
 {
   const char *variable = NULL;
   int coap_method = coap_get_rest_method(request);
-  PRINTF("Received dc-dc/ctrlParameters request:%d\n", coap_method);
+  //PRINTF("Received dc-dc/ctrlParameters request:%d\n", coap_method);
   if (coap_method == METHOD_POST)
   {
       if (REST.get_post_variable(request, "userAllowed", &variable) > 0)
       {
-          PRINTF("Received POST request for userAllowed\n");
+          //PRINTF("Received POST request for userAllowed\n");
           //printf("Received the following for userAllowed: %s\n", variable);
           char str_yes1[]="YES";
           char str_yes2[]="yes";
           if(strncmp(variable,str_yes1,sizeof(str_yes1)-1) && strncmp(variable,str_yes2,sizeof(str_yes2)-1)){
-              dc_converter_forbid_user();
+              set_user_allowed(0);
               //printf("Kicking out user\n");
           }
           else{
-              dc_converter_allow_user();
+              set_user_allowed(1);
               //printf("Allowing user\n");
           }
       }
@@ -911,55 +917,58 @@ ctrlparam_handler(void* request, void* response, uint8_t *buffer, uint16_t prefe
       if (REST.get_post_variable(request, "Vref", &variable) > 0)
       {
           float v_ref=atoff(variable);
-          PRINTF("Received POST request for Vref, new value will be set to %f\n", v_ref);
+          //PRINTF("Received POST request for Vref, new value will be set to %f\n", v_ref);
           //printf("CoAP setting Vref to %f\n", vRef);
-          dc_converter_set_control_parameter(CONV_VREF, v_ref);
+	  if (set_ctrl_params(VREF, v_ref))
+		PRINTF("Value out of range: must be 0 <= Vref <= Vmax");
           //printf("The new value of Vref is %f\n", getConverterParameter(CONV_VREF));
       }
       if (REST.get_post_variable(request, "Vmax", &variable) > 0)
       {
           float v_max=atoff(variable);
-          PRINTF("Received POST request for Vmax, new value will be set to %f\n", v_max);
+          //PRINTF("Received POST request for Vmax, new value will be set to %f\n", v_max);
           //printf("CoAP setting Vref to %f\n", vMax);
-          dc_converter_set_control_parameter(CONV_VMAX, v_max);
+	  if (set_ctrl_params(VMAX, v_max))
+		PRINTF("Value out of range: must be 0 <= Vmax <= 30");
           //printf("The new value of Vmax is %f\n", getConverterParameter(CONV_VMAX));
       }
       if (REST.get_post_variable(request, "Imax", &variable) > 0)
       {
           float i_max=atoff(variable);
-          PRINTF("Received POST request for Imax, new value will be set to %f\n", vRef);
+          //PRINTF("Received POST request for Imax, new value will be set to %f\n", vRef);
           //printf("CoAP setting Imax to %f\n", iMax);
-          dc_converter_set_control_parameter(CONV_IMAX, i_max);
+	  if (set_ctrl_params(IMAX, i_max))
+		PRINTF("Value out of range: must be 0 <= Imax <= 6");
           //printf("The new value of Imax is %f\n", getConverterParameter(CONV_IMAX));
       }
   }
   else
   {
-     PRINTF("Received GET request for the control parameters of the DC-DC converter\n");
+     //PRINTF("Received GET request for the control parameters of the DC-DC converter\n");
      const uint16_t *accept = NULL;
      int num = REST.get_header_accept(request, &accept);
 
      char user_allowed_string[4];
-      if(dc_converter_get_user_status()){
+      if(get_user_allowed()){
           strcpy(user_allowed_string, "yes");
       }
       else{
           strcpy(user_allowed_string, "no");
       }
-      float v_ref=dc_converter_get_control_parameter(CONV_VREF);
-      float v_max=dc_converter_get_control_parameter(CONV_VMAX);
-      float i_max=dc_converter_get_control_parameter(CONV_IMAX);
+      float v_ref=get_ctrl_params(VREF);
+      float v_max=get_ctrl_params(VMAX);
+      float i_max=get_ctrl_params(IMAX);
 
      if ((num==0) || (num && accept[0]==REST.type.TEXT_PLAIN))
      {
-         PRINTF("Sending CoAP Text/Plain response\n");
+         //PRINTF("Sending CoAP Text/Plain response\n");
          REST.set_header_content_type(response, REST.type.TEXT_PLAIN);
          snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "userAllowed:\t%s\nVref:\t\t%fV\nVmax:\t\t%fV\nImax:\t\t%fA", user_allowed_string, v_ref, v_max, i_max);
          REST.set_response_payload(response, (uint8_t *)buffer, strlen((char *)buffer));
      }
      else if (num && (accept[0]==REST.type.APPLICATION_JSON))
      {
-          PRINTF("Sending JSON response\n");
+          //PRINTF("Sending JSON response\n");
           REST.set_header_content_type(response, REST.type.APPLICATION_JSON);
           snprintf((char *)buffer, REST_MAX_CHUNK_SIZE, "{ctrlParam':{'userAllowed':%s, 'vref':%f, 'vmax':%f, 'imax':%f}}", user_allowed_string, v_ref, v_max, i_max);
           REST.set_response_payload(response, buffer, strlen((char *)buffer));
@@ -1052,7 +1061,7 @@ PROCESS_THREAD(rest_server_example, ev, data)
     PROCESS_WAIT_EVENT();
 #if defined (PLATFORM_HAS_BUTTON)
     if (ev == sensors_event && data == &button_sensor) {
-      PRINTF("BUTTON\n");
+//      PRINTF("BUTTON\n");
 #if REST_RES_EVENT
       /* Call the event_handler for this application-specific event. */
       event_event_handler(&resource_event);
