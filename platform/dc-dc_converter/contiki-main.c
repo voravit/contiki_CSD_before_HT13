@@ -47,9 +47,9 @@
 #include "emac-driver.h"
 #include "contiki-conf.h"
 #include <net/uip-debug.h>
-#include "leds-arch.h"
+//#include "leds-arch.h"
 #include "dev/leds.h"
-#include "bang-control.h"
+#include "control.h"
 #include "system_LPC17xx.h"
 
 unsigned int idle_count = 0;
@@ -130,7 +130,7 @@ main()
 
   //Start the dc-dc converter control process
   printf("Starting the Bang-Bang control process\n");
-  process_start(&bang_process, NULL);
+  process_start(&bang_control_process, NULL);
 
   autostart_start(autostart_processes);
 
