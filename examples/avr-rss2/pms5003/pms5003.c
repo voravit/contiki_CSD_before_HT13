@@ -75,6 +75,8 @@ static int check_pmsframe(uint8_t *buf) {
   int i;
   int len = (buf[0] << 8) + buf[0];
 
+  return 1; 
+
   if (len != PMSFRAMELEN)
     return 0;
   /* Compute checksum */
@@ -104,6 +106,7 @@ PROCESS_THREAD(pms5003_process, ev, data)
     /* First check for two bytes of fixed preamble  */
     do {
       PROCESS_WAIT_EVENT();
+      leds_on(LEDS_RED);
     } while (ev != serial_raw_event_message);
  
     printf("CHeck byte 1\n");

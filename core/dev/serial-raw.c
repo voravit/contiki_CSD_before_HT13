@@ -57,8 +57,6 @@ process_event_t serial_raw_event_message;
 int
 serial_raw_input_byte(unsigned char c)
 {
-
-  printf("here is a byte of data 0x%x\n", c);
   /* Add char to buffer. Unlike serial line input, ignore buffer overflow */
   (void) ringbuf_put(&rxbuf, c);
   /* Wake up consumer process */
@@ -79,9 +77,6 @@ PROCESS_THREAD(serial_raw_process, ev, data)
     }
     else {
       buf[0] = c;
-      printf("Rhread process read 0x%x to buf 0x%x\n", c, buf);
-      printf("nere1 is data 0x%x at 0x%x\n", *((uint8_t *) buf), buf);
-
       /* Broadcast event */
       process_post(PROCESS_BROADCAST, serial_raw_event_message, buf);
 
@@ -90,7 +85,6 @@ PROCESS_THREAD(serial_raw_process, ev, data)
 	 process_post(PROCESS_CURRENT(), PROCESS_EVENT_CONTINUE, NULL)) {
 	PROCESS_WAIT_EVENT_UNTIL(ev == PROCESS_EVENT_CONTINUE);
       }
-      printf("nere2 is data 0x%x at 0x%x\n", *((uint8_t *) buf), buf);
     }
   }
   PROCESS_END();
@@ -101,7 +95,7 @@ void
 serial_raw_init(void)
 {
 
-  printf("here is serial raw init\n");
+  //printf("here is serial raw init\n");
   ringbuf_init(&rxbuf, rxbuf_data, sizeof(rxbuf_data));
   process_start(&serial_raw_process, NULL);
 }
