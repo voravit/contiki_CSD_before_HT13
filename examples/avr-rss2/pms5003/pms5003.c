@@ -73,9 +73,7 @@ AUTOSTART_PROCESSES(&start_process, &pms5003_process);
 static int check_pmsframe(uint8_t *buf) {
   int sum, pmssum;
   int i;
-  int len = (buf[0] << 8) + buf[0];
-
-  return 1; 
+  int len = (buf[0] << 8) + buf[1];
 
   if (len != PMSFRAMELEN)
     return 0;
@@ -86,10 +84,8 @@ static int check_pmsframe(uint8_t *buf) {
     sum += buf[i];
   }
   /* Compare with received checksum */
-  pmssum = (buf[PMSBUFFER-1] << 8) + buf[PMSBUFFER];
-  if (pmssum != sum)
-    return 0;
-  return 1;
+  pmssum = (buf[PMSBUFFER-2] << 8) + buf[PMSBUFFER-1];
+  return pmssum == sum;
 }
 /*---------------------------------------------------------------------------*/
 extern process_event_t serial_raw_event_message;
@@ -109,13 +105,11 @@ PROCESS_THREAD(pms5003_process, ev, data)
       leds_on(LEDS_RED);
     } while (ev != serial_raw_event_message);
  
-    printf("CHeck byte 1\n");
     if (*((uint8_t *) data) != 0x42)
       continue;
     do {
       PROCESS_WAIT_EVENT();
     } while (ev != serial_raw_event_message);
-    printf("CHeck byte 2\n");
     if (*((uint8_t *) data) != 0x4d)
       continue;
     /* Found preamble. Get the rest */
@@ -124,9 +118,14 @@ PROCESS_THREAD(pms5003_process, ev, data)
 	PROCESS_WAIT_EVENT();
       } while (ev != serial_raw_event_message);
       buf[i] = *((uint8_t *) data);
-      printf("Got byte %d: 0x%x\n", i, *((uint8_t *) data));
     }		   
+#if 0    
     printf("Got a buggef fulle data\n");
+    for (i = 0; i < PMSBUFFER; i++) {
+	    printf("%02x ", buf[i]);
+    }
+    printf("\n");
+#endif
     /* Verify that is is a valid frame */
     if (check_pmsframe(buf)) {
       PM01 = (buf[2] << 8) | buf[3];

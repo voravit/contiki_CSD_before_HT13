@@ -1,10 +1,7 @@
-Hello-sensors
-=============
+pms5003
+=======
 
-Simple demo to read out sensors from the RSS2 mote.
-
-Demo uses double which has the same size as float on Atmel. We sacrifice 
-some bytes for this.
+Read sensor data from Dust PMS5003 laser sensor over RS232
 
 Build
 -----
