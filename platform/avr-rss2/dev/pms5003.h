@@ -41,8 +41,8 @@ process_event_t pms5003_event;
 void pms5003_init();
 void pms5003_off();
 
-uint16_t pms5003_pm1_0();
+uint16_t pms5003_pm1();
 uint16_t pms5003_pm2_5();
-uint16_t pms5003_pm10_0();
+uint16_t pms5003_pm10();
 
 #endif /* PMS5003_H */

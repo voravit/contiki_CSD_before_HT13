@@ -55,12 +55,12 @@ static int
 value(int type)
 {
   switch(type) {
-  case PMS5003_SENSOR_PM1_0:
-    return pms5003_pm1_0();
+  case PMS5003_SENSOR_PM1:
+    return pms5003_pm1();
   case PMS5003_SENSOR_PM2_5:
     return pms5003_pm2_5();
-  case PMS5003_SENSOR_PM10_0:
-    return pms5003_pm10_0();
+  case PMS5003_SENSOR_PM10:
+    return pms5003_pm10();
 }
   return 0;
 }

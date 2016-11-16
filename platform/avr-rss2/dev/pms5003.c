@@ -64,7 +64,7 @@
 #define PRE2 0x4d
 
 process_event_t pms5003_event;
-static int PM1_0, PM2_5, PM10_0;
+static int PM1, PM2_5, PM10;
 
 /*---------------------------------------------------------------------------*/
 PROCESS(pms5003_process, "PMS5003 dust sensor process");
@@ -81,16 +81,16 @@ void pms5003_off() {
   return;
 }
 
-uint16_t pms5003_pm1_0() {
-  return PM1_0;
+uint16_t pms5003_pm1() {
+  return PM1;
 }
 
 uint16_t pms5003_pm2_5() {
   return PM2_5;
 }
 
-uint16_t pms5003_pm10_0() {
-  return PM10_0;
+uint16_t pms5003_pm10() {
+  return PM10;
 }
 /*---------------------------------------------------------------------------*/
 
@@ -119,6 +119,7 @@ PROCESS_THREAD(pms5003_process, ev, data)
 {
   static uint8_t buf[PMSBUFFER];
   static int i;
+  static int ncheck = 0;
   
   PROCESS_BEGIN();
 
@@ -129,12 +130,14 @@ PROCESS_THREAD(pms5003_process, ev, data)
     do {
       PROCESS_WAIT_EVENT();
       leds_on(LEDS_RED);
+      ncheck++;
     } while (ev != serial_raw_event_message);
  
     if (*((uint8_t *) data) != 0x42)
       continue;
     do {
       PROCESS_WAIT_EVENT();
+      ncheck++;
     } while (ev != serial_raw_event_message);
     if (*((uint8_t *) data) != 0x4d)
       continue;
@@ -142,11 +145,12 @@ PROCESS_THREAD(pms5003_process, ev, data)
     for (i = 0; i < PMSBUFFER; i++) {
       do {
 	PROCESS_WAIT_EVENT();
+	ncheck++;
       } while (ev != serial_raw_event_message);
       buf[i] = *((uint8_t *) data);
     }		   
-#if 0    
-    printf("Got a buggef fulle data\n");
+#if 0
+    printf("Got a buggef fulle data: ");
     for (i = 0; i < PMSBUFFER; i++) {
 	    printf("%02x ", buf[i]);
     }
@@ -155,10 +159,11 @@ PROCESS_THREAD(pms5003_process, ev, data)
     /* Verify that is is a valid frame */
     if (check_pmsframe(buf)) {
       /* Update sensor readings */
-      PM1_0 = (buf[2] << 8) | buf[3];
+      PM1 = (buf[2] << 8) | buf[3];
       PM2_5 = (buf[4] << 8) | buf[5];
-      PM10_0 = (buf[6] << 8) | buf[7];      
-      printf("PM01 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1_0, PM2_5, PM10_0);
+      PM10 = (buf[6] << 8) | buf[7];      
+      printf("ncheck %d: ", ncheck);
+      printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
       /* Tell other processes there is new data */
       if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
 	PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);

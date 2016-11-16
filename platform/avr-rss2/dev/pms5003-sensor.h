@@ -43,8 +43,8 @@
 
 extern const struct sensors_sensor pms5003_sensor;
 
-#define PMS5003_SENSOR_PM1_0           0
-#define PMS5003_SENSOR_PM2_5           1
-#define PMS5003_SENSOR_PM10_0          2
+#define PMS5003_SENSOR_PM1           0
+#define PMS5003_SENSOR_PM2_5         1
+#define PMS5003_SENSOR_PM10          2
 
 #endif /* PMS5003_SENSOR_H_ */

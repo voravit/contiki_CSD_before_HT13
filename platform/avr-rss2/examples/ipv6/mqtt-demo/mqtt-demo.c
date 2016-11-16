@@ -61,6 +61,8 @@
 #endif
 #include "adc.h"
 #include "dev/pulse-sensor.h"
+#include "dev/pms5003.h"
+#include "dev/pms5003-sensor.h"
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -150,7 +152,8 @@ static uint8_t state;
 #define ECHO_REQ_PAYLOAD_LEN   20
 /*---------------------------------------------------------------------------*/
 PROCESS_NAME(mqtt_demo_process);
-AUTOSTART_PROCESSES(&mqtt_demo_process);
+AUTOSTART_PROCESSES(&mqtt_demo_process, &sensors_process);
+SENSORS(&pms5003_sensor);
 /*---------------------------------------------------------------------------*/
 /**
  * \brief Data structure declaration for the MQTT client configuration
@@ -542,6 +545,19 @@ publish(void)
   buf_ptr += len;
 #endif
 
+  len = snprintf(buf_ptr, remaining, ",\"PM1\":%d, ,\"PM2.5\":%d, \"PM10\":%d,",
+                 pms5003_sensor.value(PMS5003_SENSOR_PM1),
+                 pms5003_sensor.value(PMS5003_SENSOR_PM2_5), 
+		 pms5003_sensor.value(PMS5003_SENSOR_PM10));
+
+  if(len < 0 || len >= remaining) {
+    printf("Buffer too short. Have %d, need %d + \\0\n", remaining, len);
+    return;
+  }
+
+  remaining -= len;
+  buf_ptr += len;
+
   len = snprintf(buf_ptr, remaining, "}}");
 
   remaining -= len;
@@ -733,7 +749,8 @@ PROCESS_THREAD(mqtt_demo_process, ev, data)
 #endif
   leds_init(); 
   SENSORS_ACTIVATE(pulse_sensor);
-
+  SENSORS_ACTIVATE(pms5003_sensor);
+  
   /* The data sink runs with a 100% duty cycle in order to ensure high 
      packet reception rates. */
   //NETSTACK_MAC.off(1);
