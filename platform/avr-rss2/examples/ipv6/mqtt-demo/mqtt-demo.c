@@ -545,10 +545,25 @@ publish(void)
   buf_ptr += len;
 #endif
 
-  len = snprintf(buf_ptr, remaining, ",\"PM1\":%d, ,\"PM2.5\":%d, \"PM10\":%d,",
+  len = snprintf(buf_ptr, remaining, ",\"PM1\":%d, \"PM2.5\":%d, \"PM10\":%d",
                  pms5003_sensor.value(PMS5003_SENSOR_PM1),
                  pms5003_sensor.value(PMS5003_SENSOR_PM2_5), 
 		 pms5003_sensor.value(PMS5003_SENSOR_PM10));
+
+  if(len < 0 || len >= remaining) {
+    printf("Buffer too short. Have %d, need %d + \\0\n", remaining, len);
+    return;
+  }
+
+  remaining -= len;
+  buf_ptr += len;
+
+  extern uint32_t pms5003_valid_frames();
+  extern uint32_t pms5003_invalid_frames();
+
+  len = snprintf(buf_ptr, remaining, ",\"valid frames\":%lu, \"invalid frames\":%lu",
+                 pms5003_valid_frames(),
+                 pms5003_invalid_frames());
 
   if(len < 0 || len >= remaining) {
     printf("Buffer too short. Have %d, need %d + \\0\n", remaining, len);
