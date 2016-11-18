@@ -246,7 +246,8 @@ uint32_t longhowlong;
 #endif
     cli();
 	watchdog_stop();
-	set_sleep_mode(SLEEP_MODE_PWR_SAVE);
+	//set_sleep_mode(SLEEP_MODE_PWR_SAVE);
+	set_sleep_mode(SLEEP_MODE_IDLE);
 
 /* Set TIMER2 clock asynchronus from external source, CTC mode */
     ASSR |= (1 << AS2);
