@@ -1,4 +1,6 @@
-CONTIKI_PROJECT = example-shell
+CONTIKI_PROJECT =  example-shell 
+PROJECT_SOURCEFILES += symbols.c
+
 all: $(CONTIKI_PROJECT)
 
 APPS = serial-shell
