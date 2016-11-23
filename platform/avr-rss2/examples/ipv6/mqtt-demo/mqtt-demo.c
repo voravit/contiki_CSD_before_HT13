@@ -63,6 +63,8 @@
 #include "dev/pulse-sensor.h"
 #include "dev/pms5003.h"
 #include "dev/pms5003-sensor.h"
+#include "i2c.h"
+#include "dev/bme280/bme280-sensor.h"
 
 /*---------------------------------------------------------------------------*/
 /*
@@ -152,8 +154,15 @@ static uint8_t state;
 #define ECHO_REQ_PAYLOAD_LEN   20
 /*---------------------------------------------------------------------------*/
 PROCESS_NAME(mqtt_demo_process);
+#ifdef CHECKER
+PROCESS(mqtt_checker_process, "MQTT state checker for debug");
+
+AUTOSTART_PROCESSES(&mqtt_demo_process, &sensors_process, &mqtt_checker_process);
+#else
 AUTOSTART_PROCESSES(&mqtt_demo_process, &sensors_process);
+#endif
 SENSORS(&pms5003_sensor);
+
 /*---------------------------------------------------------------------------*/
 /**
  * \brief Data structure declaration for the MQTT client configuration
@@ -465,13 +474,24 @@ publish(void)
   buf_ptr = app_buffer;
 
 #if 1
+
+  uip_ipaddr_t loc_fipaddr; /* Link local address - use 8 last bytes for ID */
+  uint8_t *ll; 
+  uip_create_linklocal_prefix(&loc_fipaddr);
+  uip_ds6_set_addr_iid(&loc_fipaddr, &uip_lladdr);
+  //ll = (uint8_t *) linkaddr_node_addr.u8;
+  ll = (uint8_t *) &loc_fipaddr;
   len = snprintf(buf_ptr, remaining,
                  "{"
                  "\"d\":{"
                  "\"Name\":\"%s\","
+		 "\"ID\": \"%02x%02x%02x%02x%02x%02x%02x%02x\","
                  "\"Seq #\":%d,"
                  "\"Uptime (sec)\":%lu",
-                 BOARD_STRING, seq_nr_value, clock_seconds());
+                 BOARD_STRING,
+		 ll[8], ll[9], ll[10], ll[11], ll[12], ll[13], ll[14], ll[15],
+		 //ll[0], ll[1], ll[2], ll[3], ll[4], ll[5], ll[6], ll[7],
+		 seq_nr_value, clock_seconds());
 #endif
 
   if(len < 0 || len >= remaining) {
@@ -509,29 +529,6 @@ publish(void)
   remaining -= len;
   buf_ptr += len;
 
-  len = snprintf(buf_ptr, remaining, ",\"Temp (C)\":%-5.2f",
-		 ((double) temp_sensor.value(0)/100.));
-
-  if(len < 0 || len >= remaining) {
-    printf("Buffer too short. Have %d, need %d + \\0\n", remaining, len);
-    return;
-  }
-  remaining -= len;
-  buf_ptr += len;
-
-  //
-  len = snprintf(buf_ptr, remaining, ",\"P0 (V)\":%d",
-		 pulse_sensor.value(0));
-
-  if(len < 0 || len >= remaining) {
-    printf("Buffer too short. Have %d, need %d + \\0\n", remaining, len);
-    return;
-  }
-
-  remaining -= len;
-  buf_ptr += len;
-  //
-
 #ifdef CO2
   len = snprintf(buf_ptr, remaining, ",\"SA_CO2 (ppm)\":%d",
                  co2_sa_kxx_sensor.value(CO2_SA_KXX_CO2));
@@ -545,7 +542,7 @@ publish(void)
   buf_ptr += len;
 #endif
 
-  len = snprintf(buf_ptr, remaining, ",\"PM1\":%d, \"PM2.5\":%d, \"PM10\":%d",
+  len = snprintf(buf_ptr, remaining, ",\"Particles (ug/m3)\": {\"PM1\":%d, \"PM2.5\":%d, \"PM10\":%d}",
                  pms5003_sensor.value(PMS5003_SENSOR_PM1),
                  pms5003_sensor.value(PMS5003_SENSOR_PM2_5), 
 		 pms5003_sensor.value(PMS5003_SENSOR_PM10));
@@ -557,11 +554,10 @@ publish(void)
 
   remaining -= len;
   buf_ptr += len;
-
   extern uint32_t pms5003_valid_frames();
   extern uint32_t pms5003_invalid_frames();
 
-  len = snprintf(buf_ptr, remaining, ",\"valid frames\":%lu, \"invalid frames\":%lu",
+  len = snprintf(buf_ptr, remaining, ",\"PMS5003\": {\"valid frames\":%lu, \"invalid frames\":%lu}",
                  pms5003_valid_frames(),
                  pms5003_invalid_frames());
 
@@ -573,6 +569,21 @@ publish(void)
   remaining -= len;
   buf_ptr += len;
 
+  if( i2c_probed & I2C_BME280 ) {
+    len = snprintf(buf_ptr, remaining, ",\"BME280\":{\"Temperature (C)\":%d, \"Humidity (%%)\":%d, \"Pressure (hPa)\":%d.%d}",
+		   bme280_sensor.value(BME280_SENSOR_TEMP),
+		   bme280_sensor.value(BME280_SENSOR_HUMIDITY), 
+		   bme280_sensor.value(BME280_SENSOR_PRESSURE)/10,
+		   bme280_sensor.value(BME280_SENSOR_PRESSURE) % 10);
+
+    if(len < 0 || len >= remaining) {
+      printf("Buffer too short. Have %d, need %d + \\0\n", remaining, len);
+      return;
+    }
+    remaining -= len;
+    buf_ptr += len;
+  }
+
   len = snprintf(buf_ptr, remaining, "}}");
 
   remaining -= len;
@@ -583,7 +594,7 @@ publish(void)
     return;
   }
 
-
+  printf("MQTT publish %d:\n", seq_nr_value);
   mqtt_publish(&conn, NULL, pub_topic, (uint8_t *)app_buffer,
                strlen(app_buffer), MQTT_QOS_LEVEL_0, MQTT_RETAIN_OFF);
 
@@ -703,8 +714,13 @@ state_machine(void)
        * trigger a new message and we wait for TCP to either ACK the entire
        * packet after retries, or to timeout and notify us.
        */
+#if 0
       DBG("Publishing... (MQTT state=%d, q=%u)\n", conn.state,
           conn.out_queue_full);
+#else
+      DBG("Publishing... (MQTT state=%d, q=%u) mqtt_ready %d out_buffer_sent %d\n", conn.state,
+          conn.out_queue_full, mqtt_ready(&conn), conn.out_buffer_sent);
+#endif      
     }
     break;
   case STATE_DISCONNECTED:
@@ -765,6 +781,9 @@ PROCESS_THREAD(mqtt_demo_process, ev, data)
   leds_init(); 
   SENSORS_ACTIVATE(pulse_sensor);
   SENSORS_ACTIVATE(pms5003_sensor);
+  if( i2c_probed & I2C_BME280 ) {
+    SENSORS_ACTIVATE(bme280_sensor);
+  }
   
   /* The data sink runs with a 100% duty cycle in order to ensure high 
      packet reception rates. */
@@ -809,6 +828,72 @@ PROCESS_THREAD(mqtt_demo_process, ev, data)
 
   PROCESS_END();
 }
+
+#ifdef CHECKER
+static struct etimer checktimer;
+static struct etimer blinktimer;
+
+#define BLINKON 1
+#define BLINKOFF 2
+#define BLINKDELAY 3
+#define TIMEBLINKON CLOCK_SECOND/2
+#define TIMEBLINKOFF CLOCK_SECOND/2
+#define TIMEBLINKDELAY CLOCK_SECOND*10
+
+static uint8_t blinkstate = BLINKDELAY;
+static uint8_t numblinks;
+
+void blinker() {
+  switch (blinkstate) {
+  case BLINKDELAY:
+    numblinks = state;
+    leds_on(LEDS_RED);
+    etimer_set(&blinktimer, TIMEBLINKON);
+    blinkstate = BLINKON;
+    break;
+  case BLINKON:
+    leds_off(LEDS_RED);
+    if (--numblinks == 0) { /* Done blinking for now. Delay a while */
+      etimer_set(&blinktimer, TIMEBLINKDELAY);
+      blinkstate = BLINKDELAY;
+    }
+    else {
+      etimer_set(&blinktimer, TIMEBLINKOFF);
+      blinkstate = BLINKOFF;
+    }
+    break;
+  case BLINKOFF:
+    leds_on(LEDS_RED);
+    etimer_set(&blinktimer, TIMEBLINKON);
+    blinkstate = BLINKON;
+  }
+}
+
+PROCESS_THREAD(mqtt_checker_process, ev, data)
+{
+
+  PROCESS_BEGIN();
+  etimer_set(&checktimer, CLOCK_SECOND*30);
+  blinker();
+
+  /* Main loop */
+  while(1) {
+
+    PROCESS_YIELD();
+
+    if((ev == PROCESS_EVENT_TIMER) && (data == &checktimer)) {
+      printf("MQTT state %d\n", state);
+      etimer_reset(&checktimer);
+    }
+    if((ev == PROCESS_EVENT_TIMER) && (data == &blinktimer)) {
+      blinker();
+    }
+  }
+
+  PROCESS_END();
+}
+
+#endif /* CHECKER */
 /*---------------------------------------------------------------------------*/
 /**
  * @}
