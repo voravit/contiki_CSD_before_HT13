@@ -108,29 +108,19 @@ static int check_pmsframe(uint8_t *buf) {
   int sum, pmssum;
   int i;
   int len = (buf[0] << 8) + buf[1];
-  int valid = 1;
   
   if (len != PMSFRAMELEN) {
-    valid = 0;
-    goto done;
+    return 0;
   }
   /* Compute checksum */
   sum = PRE1+PRE2; /* Fixed preamble */
-  /* Exclude checksum field */
+  /* Sum data bytewise, excluding checksum field */
   for (i = 0; i < PMSBUFFER-2; i++) {
     sum += buf[i];
   }
   /* Compare with received checksum */
   pmssum = (buf[PMSBUFFER-2] << 8) + buf[PMSBUFFER-1];
-  valid = (pmssum == sum);
-done:
-  if (valid) {
-    valid_frames++;
-    return 1;
-  } else {
-    invalid_frames++;
-    return 0;
-  }
+  return (pmssum == sum);
 }
 /*---------------------------------------------------------------------------*/
 extern process_event_t serial_raw_event_message;
@@ -165,41 +155,30 @@ PROCESS_THREAD(pms5003_process, ev, data)
       } while (ev != serial_raw_event_message);
       buf[i] = *((uint8_t *) data);
     }		   
-#if 0
-    printf("Got a buggef fulle data: ");
-    for (i = 0; i < PMSBUFFER; i++) {
-	    printf("%02x ", buf[i]);
-    }
-    printf("\n");
-#endif
     /* Verify that is is a valid frame */
     if (check_pmsframe(buf)) {
+      valid_frames++;
       /* Update sensor readings */
       PM1 = (buf[2] << 8) | buf[3];
       PM2_5 = (buf[4] << 8) | buf[5];
       PM10 = (buf[6] << 8) | buf[7];      
+#if 0
       printf("valid %lu, invalid %lu: ", valid_frames, invalid_frames);
       printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
+#endif
       /* Tell other processes there is new data */
       if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
 	PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
       }
     }
-    else
+    else {
+      invalid_frames++;
+#if 0
       printf("Frame validation failed\n");
+#endif
+    }
   }
   PROCESS_END();
 }
 
-#if 0
-PROCESS_THREAD(start_process, ev, data)
-{
-  PROCESS_BEGIN();
-  rs232_set_input(RS232_PORT_0, serial_raw_input_byte);
-
-  serial_raw_init();
-
-  PROCESS_END();
-}
-#endif
 /*---------------------------------------------------------------------------*/
