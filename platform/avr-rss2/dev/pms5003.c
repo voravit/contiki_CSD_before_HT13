@@ -56,8 +56,11 @@
 #include "dev/serial-line.h"
 #include "dev/serial-raw.h"
 
-#define PMSFRAMELEN 28
-#define PMSBUFFER PMSFRAMELEN+2
+/* Valid values for body length field */
+#define PMSMINBODYLEN 20
+#define PMSMAXBODYLEN 28
+/* Buffer holds message body plus length field (two bytes) */
+#define PMSBUFFER (PMSMAXBODYLEN+2)
 
 /* Two Preamble bytes */
 #define PRE1 0x42
@@ -109,17 +112,17 @@ static int check_pmsframe(uint8_t *buf) {
   int i;
   int len = (buf[0] << 8) + buf[1];
   
-  if (len != PMSFRAMELEN) {
+  if (len < PMSMINBODYLEN || len > PMSMAXBODYLEN) {
     return 0;
   }
   /* Compute checksum */
   sum = PRE1+PRE2; /* Fixed preamble */
   /* Sum data bytewise, excluding checksum field */
-  for (i = 0; i < PMSBUFFER-2; i++) {
+  for (i = 0; i < len; i++) {
     sum += buf[i];
   }
   /* Compare with received checksum */
-  pmssum = (buf[PMSBUFFER-2] << 8) + buf[PMSBUFFER-1];
+  pmssum = (buf[len] << 8) + buf[len+1];
   return (pmssum == sum);
 }
 /*---------------------------------------------------------------------------*/
@@ -127,9 +130,9 @@ extern process_event_t serial_raw_event_message;
 /*---------------------------------------------------------------------------*/
 PROCESS_THREAD(pms5003_process, ev, data)
 {
-  static uint8_t buf[PMSBUFFER];
-  static int i;
-  
+  static uint8_t buf[PMSBUFFER], *bufp;
+  static int remain;
+
   PROCESS_BEGIN();
 
   pms5003_event = process_alloc_event();
@@ -148,34 +151,58 @@ PROCESS_THREAD(pms5003_process, ev, data)
     } while (ev != serial_raw_event_message);
     if (*((uint8_t *) data) != 0x4d)
       continue;
-    /* Found preamble. Get the rest */
-    for (i = 0; i < PMSBUFFER; i++) {
-      do {
-	PROCESS_WAIT_EVENT();
-      } while (ev != serial_raw_event_message);
-      buf[i] = *((uint8_t *) data);
-    }		   
-    /* Verify that is is a valid frame */
-    if (check_pmsframe(buf)) {
-      valid_frames++;
-      /* Update sensor readings */
-      PM1 = (buf[2] << 8) | buf[3];
-      PM2_5 = (buf[4] << 8) | buf[5];
-      PM10 = (buf[6] << 8) | buf[7];      
-#if 0
-      printf("valid %lu, invalid %lu: ", valid_frames, invalid_frames);
-      printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
-#endif
-      /* Tell other processes there is new data */
-      if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
-	PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
-      }
+
+    /* Found preamble. Then get length */
+    bufp = buf;
+    do {
+      PROCESS_WAIT_EVENT();
+    } while (ev != serial_raw_event_message);
+    *bufp++ = *((uint8_t *) data);
+    do {
+      PROCESS_WAIT_EVENT();
+    } while (ev != serial_raw_event_message); 
+    *bufp++ = *((uint8_t *) data);
+    /* Body length in first two bytes -- no of bytes that remain to get */
+    remain = (buf[0] << 8) + buf[1];
+    if (remain < PMSMINBODYLEN || remain > PMSMAXBODYLEN) {
+      invalid_frames++;
     }
     else {
-      invalid_frames++;
+      while (remain--) {
+	do {
+	  PROCESS_WAIT_EVENT();
+	} while (ev != serial_raw_event_message);
+	*bufp++ = *((uint8_t *) data);
+      }		   
+      /* Verify that is is a valid frame */
+      if (check_pmsframe(buf)) {
+	valid_frames++;
+	/* Update sensor readings */
+	PM1 = (buf[2] << 8) | buf[3];
+	PM2_5 = (buf[4] << 8) | buf[5];
+	PM10 = (buf[6] << 8) | buf[7];      
 #if 0
-      printf("Frame validation failed\n");
+	printf("valid %lu, invalid %lu: ", valid_frames, invalid_frames);
+	printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
 #endif
+	/* Tell other processes there is new data */
+	if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
+	  PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
+	}
+      }
+      else {
+	invalid_frames++;
+#if 0
+	printf("Frame validation failed\n");
+#endif
+      }
+#if 1
+      if (((invalid_frames + valid_frames) % 10) == 0) {
+	printf("valid %lu, invalid %lu: ", valid_frames, invalid_frames);
+	printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
+      }
+#endif
+
     }
   }
   PROCESS_END();
