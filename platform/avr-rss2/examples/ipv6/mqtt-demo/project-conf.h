@@ -46,11 +46,15 @@
 
 /* If undefined, the demo will attempt to connect to IBM's quickstart */
 //#define MQTT_DEMO_BROKER_IP_ADDR "aaaa::1"
-#define MQTT_DEMO_BROKER_IP_ADDR "::ffff:c010:7dea" 
-/* "0064:ff9b:0000:0000:0000:0000:b8ac:7cbd"; */
+//#define MQTT_DEMO_BROKER_IP_ADDR "::ffff:c010:7dea" 
+//#define MQTT_DEMO_BROKER_IP_ADDR "::ffff:c010:7dea" 
+#define MQTT_DEMO_BROKER_IP_ADDR "0064:ff9b:0000:0000:0000:0000:c010:7dea"
 
-#define NETSTACK_CONF_MAC         csma_driver
-#define NETSTACK_CONF_RDC         contikimac_driver
+#define NETSTACK_CONF_RDC nullrdc_driver
+#define NETSTACK_CONF_MAC nullmac_driver
+
+//#define NETSTACK_CONF_MAC         csma_driver
+//#define NETSTACK_CONF_RDC         contikimac_driver
 #define NETSTACK_CONF_FRAMER      framer_802154
 #define NETSTACK_CONF_RADIO       rf230_driver
 
