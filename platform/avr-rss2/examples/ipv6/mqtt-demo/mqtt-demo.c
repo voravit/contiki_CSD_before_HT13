@@ -143,7 +143,7 @@ static uint8_t state;
 #define DEFAULT_EVENT_TYPE_ID       "status"
 #define DEFAULT_SUBSCRIBE_CMD_TYPE  "+"
 #define DEFAULT_BROKER_PORT         1883
-#define DEFAULT_PUBLISH_INTERVAL    (5 * CLOCK_SECOND)
+#define DEFAULT_PUBLISH_INTERVAL    (30 * CLOCK_SECOND)
 #define DEFAULT_KEEP_ALIVE_TIMER    60
 #define DEFAULT_RSSI_MEAS_INTERVAL  (CLOCK_SECOND * 30)
 /*---------------------------------------------------------------------------*/
@@ -180,7 +180,7 @@ typedef struct mqtt_client_config {
 } mqtt_client_config_t;
 /*---------------------------------------------------------------------------*/
 /* Maximum TCP segment size for outgoing segments of our socket */
-#define MAX_TCP_SEGMENT_SIZE    32
+#define MAX_TCP_SEGMENT_SIZE  62  
 /*---------------------------------------------------------------------------*/
 #define STATUS_LED LEDS_YELLOW
 /*---------------------------------------------------------------------------*/
