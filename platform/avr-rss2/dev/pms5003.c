@@ -192,12 +192,12 @@ PROCESS_THREAD(pms5003_uart_process, ev, data)
       leds_on(LEDS_RED);
     } while (ev != serial_raw_event_message);
  
-    if (*((uint8_t *) data) != 0x42)
+    if (*((uint8_t *) data) != PRE1)
       continue;
     do {
       PROCESS_WAIT_EVENT();
     } while (ev != serial_raw_event_message);
-    if (*((uint8_t *) data) != 0x4d)
+    if (*((uint8_t *) data) != PRE2)
       continue;
 
     /* Found preamble. Then get length */
