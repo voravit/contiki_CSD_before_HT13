@@ -71,6 +71,7 @@
 #include "contiki-lib.h"
 
 #include "dev/rs232.h"
+#include "dev/serial-line.h"
 #include "dev/slip.h"
 
 #if AVR_WEBSERVER
@@ -261,6 +262,10 @@ initialize(void)
   process_start(&etimer_process, NULL);
   ctimer_init();
 
+  /* After process start */
+  serial_line_init();
+  rs232_set_input(RS232_PORT_0, serial_line_input_byte);
+
   /* Start radio and radio receive process */
   NETSTACK_RADIO.init();
 
@@ -304,8 +309,18 @@ initialize(void)
   memcpy(&uip_lladdr.addr, &addr.u8, sizeof(linkaddr_t));
 #endif
 
+#ifdef IEEE802154_CONF_PANID
+  rf230_set_pan_addr(IEEE802154_CONF_PANID, params_get_panaddr(), (uint8_t *)&addr.u8);
+#else
   rf230_set_pan_addr(params_get_panid(), params_get_panaddr(), (uint8_t *)&addr.u8);
+#endif
+
+#ifdef CHANNEL_CONF_802_15_4
+  rf230_set_channel(CHANNEL_CONF_802_15_4);
+#else
   rf230_set_channel(params_get_channel());
+#endif
+
   rf230_set_txpower(params_get_txpower());
 
 #if NETSTACK_CONF_WITH_IPV6
@@ -329,8 +344,8 @@ initialize(void)
   NETSTACK_NETWORK.init();
 
 #if ANNOUNCE_BOOT
-  PRINTA("MAC=%s, RDC=%s, NETWORK=%s, channel=%-u, check-rate-Hz=%-u, tx-power=%-u\n", NETSTACK_MAC.name,
-         NETSTACK_RDC.name, NETSTACK_NETWORK.name, rf230_get_channel(),
+  PRINTA("PAN=0x%X, XMAC=%s, RDC=%s, NETWORK=%s, channel=%-u, check-rate-Hz=%-u, tx-power=%-u\n", rf230_get_panid(),
+	 NETSTACK_MAC.name, NETSTACK_RDC.name, NETSTACK_NETWORK.name, rf230_get_channel(),
          CLOCK_SECOND / (NETSTACK_RDC.channel_check_interval() == 0 ? 1 : NETSTACK_RDC.channel_check_interval()),
          rf230_get_txpower());
 #if UIP_CONF_IPV6_RPL
@@ -339,7 +354,6 @@ initialize(void)
 #if UIP_CONF_ROUTER
   PRINTA("Routing Enabled\n");
 #endif
-
 #endif /* ANNOUNCE_BOOT */
 
 #if NETSTACK_CONF_WITH_IPV6 || NETSTACK_CONF_WITH_IPV4

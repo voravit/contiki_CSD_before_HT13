@@ -48,7 +48,8 @@
 //#define MQTT_DEMO_BROKER_IP_ADDR "aaaa::1"
 //#define MQTT_DEMO_BROKER_IP_ADDR "::ffff:c010:7dea" 
 //#define MQTT_DEMO_BROKER_IP_ADDR "::ffff:c010:7dea" 
-#define MQTT_DEMO_BROKER_IP_ADDR "0064:ff9b:0000:0000:0000:0000:c010:7dea"
+//#define MQTT_DEMO_BROKER_IP_ADDR "0064:ff9b:0000:0000:0000:0000:c010:7dea"
+#define MQTT_DEMO_BROKER_IP_ADDR "FD02::1"
 
 #define NETSTACK_CONF_RDC nullrdc_driver
 #define NETSTACK_CONF_MAC nullmac_driver
@@ -61,6 +62,10 @@
 #define BOARD_STRING  "greeniot"
 
 #define RS232_BAUDRATE USART_BAUD_9600
+
+#define IEEE802154_CONF_PANID 0xFEED
+#define CHANNEL_CONF_802_15_4 25
+
 
 /*---------------------------------------------------------------------------*/
 #endif /* PROJECT_CONF_H_ */
