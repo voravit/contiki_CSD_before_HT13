@@ -68,15 +68,18 @@
 
 process_event_t pms5003_event;
 static uint16_t PM1, PM2_5, PM10;
+static uint16_t PM1_ATM, PM2_5_ATM, PM10_ATM;
 static uint32_t invalid_frames, valid_frames;
 /*---------------------------------------------------------------------------*/
-PROCESS(pms5003_process, "PMS5003 dust sensor process");
+PROCESS(pms5003_process, "PMS5003/UART dust sensor process");
+PROCESS(pms5003_i2c_process, "PMS5003/I2C dust sensor process");
  /* AUTOSTART_PROCESSES(&start_process, &pms5003_process);*/
 /*---------------------------------------------------------------------------*/
 void pms5003_init() {
   rs232_set_input(RS232_PORT_0, serial_raw_input_byte);
   serial_raw_init();
   process_start(&pms5003_process, NULL);
+  process_start(&pms5003_i2c_process, NULL);
   return;
 }
 
@@ -94,6 +97,18 @@ uint16_t pms5003_pm2_5() {
 
 uint16_t pms5003_pm10() {
   return PM10;
+}
+
+uint16_t pms5003_pm1_atm() {
+  return PM1_ATM;
+}
+
+uint16_t pms5003_pm2_5_atm() {
+  return PM2_5_ATM;
+}
+
+uint16_t pms5003_pm10_atm() {
+  return PM10_ATM;
 }
 
 uint32_t pms5003_valid_frames() {
@@ -181,9 +196,13 @@ PROCESS_THREAD(pms5003_process, ev, data)
 	PM1 = (buf[2] << 8) | buf[3];
 	PM2_5 = (buf[4] << 8) | buf[5];
 	PM10 = (buf[6] << 8) | buf[7];      
+	PM1_ATM = (buf[8] << 8) | buf[9];
+	PM2_5_ATM = (buf[10] << 8) | buf[11];
+	PM10_ATM = (buf[12] << 8) | buf[13];      
 #if 0
 	printf("valid %lu, invalid %lu: ", valid_frames, invalid_frames);
 	printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
+	printf("PM1_ATM = %04d, PM2.5_ATM = %04d, PM10_ATM = %04d\n", PM1_ATM, PM2_5_ATM, PM10_ATM);	
 #endif
 	/* Tell other processes there is new data */
 	if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
@@ -200,6 +219,7 @@ PROCESS_THREAD(pms5003_process, ev, data)
       if (((invalid_frames + valid_frames) % 10) == 0) {
 	printf("valid %lu, invalid %lu: ", valid_frames, invalid_frames);
 	printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
+	printf("PM1_ATM = %04d, PM2.5_ATM = %04d, PM10_ATM = %04d\n", PM1_ATM, PM2_5_ATM, PM10_ATM);	
       }
 #endif
 
@@ -209,3 +229,28 @@ PROCESS_THREAD(pms5003_process, ev, data)
 }
 
 /*---------------------------------------------------------------------------*/
+static struct etimer i2ctimer;
+
+PROCESS_THREAD(pms5003_i2c_process, ev, data)
+{
+
+  extern uint16_t i2c_probed; /* contiki_main.c: i2c devices we have probed */
+
+  PROCESS_BEGIN();
+  etimer_set(&i2ctimer, CLOCK_SECOND*30);
+
+  /* Main loop */
+  while(1) {
+
+    PROCESS_YIELD();
+
+    if((ev == PROCESS_EVENT_TIMER) && (data == &i2ctimer)) {
+	    if (i2c_probed & I2C_PMS5003)
+		    printf("probed I2C\n");
+	    else
+		    printf("Not probbed I2C\n");
+    }
+  }
+  PROCESS_END();
+}
+

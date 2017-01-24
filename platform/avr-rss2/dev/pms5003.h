@@ -44,5 +44,8 @@ void pms5003_off();
 uint16_t pms5003_pm1();
 uint16_t pms5003_pm2_5();
 uint16_t pms5003_pm10();
+uint16_t pms5003_pm1_atm();
+uint16_t pms5003_pm2_5_atm();
+uint16_t pms5003_pm10_atm();
 
 #endif /* PMS5003_H */
