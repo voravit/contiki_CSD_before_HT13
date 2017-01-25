@@ -36,6 +36,11 @@
 #ifndef PMS5003_H
 #define PMS5003_H
 
+/* AVR configuration for controlling dust sensor */
+#define SET_PMS_DDR  DDRD   /* Data Direction Register: Port B */
+#define SET_PMS_PORT PORTD  /* Serial Peripheral Interface */
+#define PMS_SET      6      /* PD6: OW2_PIN, Chip Select */
+
 process_event_t pms5003_event;
 
 void pms5003_init();

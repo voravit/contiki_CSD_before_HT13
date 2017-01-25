@@ -55,6 +55,7 @@
 #include "dev/rs232.h"
 #include "dev/serial-line.h"
 #include "dev/serial-raw.h"
+#include "dev/pms5003.h"
 
 /* Valid values for body length field */
 #define PMSMINBODYLEN 20
@@ -242,6 +243,8 @@ PROCESS_THREAD(pms5003_i2c_process, ev, data)
   static uint8_t buf[PMSBUFFER];
   extern uint16_t i2c_probed; /* contiki_main.c: i2c devices we have probed */
 
+  static int toggle = 1;
+  
   PROCESS_BEGIN();
   etimer_set(&i2ctimer, CLOCK_SECOND*15);
 
@@ -251,6 +254,25 @@ PROCESS_THREAD(pms5003_i2c_process, ev, data)
     PROCESS_YIELD();
 
     if((ev == PROCESS_EVENT_TIMER) && (data == &i2ctimer)) {
+      if (toggle) {
+	printf("Turn it on\n");
+	SET_PMS_DDR |= (1 << PMS_SET);
+	SET_PMS_PORT |= (1 << PMS_SET);
+      }
+      else {
+	if (i2c_probe() & I2C_PMS5003) {
+	  printf("THere is an I2C\n");
+	  i2c_read_mem(I2C_PMS5003_ADDR, 0, buf, PMSBUFFER);
+	  if (pmsframe(buf)) {
+	    printpm();
+	  }
+	}
+	printf("off it turn\n");
+	SET_PMS_DDR |= (1 << PMS_SET);
+	SET_PMS_PORT &= ~(1 << PMS_SET);
+      }
+      toggle = !toggle;
+#ifdef notdef
       if (i2c_probed & I2C_PMS5003) {
 	i2c_read_mem(I2C_PMS5003_ADDR, 0, buf, PMSBUFFER);
 	if (pmsframe(buf)) {
@@ -261,6 +283,7 @@ PROCESS_THREAD(pms5003_i2c_process, ev, data)
 	  }
 	}
       }
+#endif /* notdef */
       etimer_reset(&i2ctimer);
     }
   }
