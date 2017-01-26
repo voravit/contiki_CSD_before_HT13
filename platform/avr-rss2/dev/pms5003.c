@@ -41,22 +41,21 @@
 #include "contiki.h"
 #include "sys/etimer.h"
 #include <stdio.h>
-#include "adc.h"
 #include "i2c.h"
+#include "watchdog.h"
 #include "dev/leds.h"
-#include "dev/battery-sensor.h"
-#include "dev/temp-sensor.h"
-#include "dev/temp_mcu-sensor.h"
-#include "dev/light-sensor.h"
-#include "dev/pulse-sensor.h"
-#ifdef CO2
-#include "dev/co2_sa_kxx-sensor.h"
-#endif
 #include "dev/rs232.h"
 #include "dev/serial-line.h"
 #include "dev/serial-raw.h"
 #include "dev/pms5003.h"
 
+/*
+ * Definitions for frames from PMSX003 sensors 
+ */
+
+/* Two preamble bytes */
+#define PRE1 0x42
+#define PRE2 0x4d
 /* Valid values for body length field */
 #define PMSMINBODYLEN 20
 #define PMSMAXBODYLEN 28
@@ -64,17 +63,10 @@
  * and length field (two bytes) */
 #define PMSBUFFER (PMSMAXBODYLEN+4)
 
-/* Two preamble bytes */
-#define PRE1 0x42
-#define PRE2 0x4d
+/* When sensor entered current power save mode, in clock_seconds()*/
+static unsigned long when_mode; 
 
-/* For state management */
-#define RUNNING 1
-#define IDLE 2
-static uint8_t sensorstate = IDLE;
-static uint16_t idle_secs, running_secs;
-
-process_event_t pms5003_event;
+/* Last readings of sensor data */
 static uint16_t PM1, PM2_5, PM10;
 static uint16_t PM1_ATM, PM2_5_ATM, PM10_ATM;
 static uint32_t invalid_frames, valid_frames;
@@ -90,7 +82,7 @@ void pms5003_init() {
   process_start(&pms5003_i2c_process, NULL);
   return;
 }
-
+/*---------------------------------------------------------------------------*/
 void pms5003_off() {
   return;
 }
@@ -128,7 +120,6 @@ uint32_t pms5003_invalid_frames() {
 }
 
 /*---------------------------------------------------------------------------*/
-
 /* Validate frame by checking length field and checksum */
 static int check_pmsframe(uint8_t *buf) {
   int sum, pmssum;
@@ -181,7 +172,35 @@ printpm() {
     printf("PM1 = %04d, PM2.5 = %04d, PM10 = %04d\n", PM1, PM2_5, PM10);
     printf("PM1_ATM = %04d, PM2.5_ATM = %04d, PM10_ATM = %04d\n", PM1_ATM, PM2_5_ATM, PM10_ATM);	
 }
-  
+/*---------------------------------------------------------------------------*/
+static int
+pms_probe() {
+  watchdog_periodic();
+  if(!i2c_start(I2C_PMS5003_ADDR)) {
+    i2c_stop();
+    return 1;
+  }
+  return 0;
+}
+
+#define STANDBY_MODE_OFF	0
+#define STANDBY_MODE_ON		1
+static uint8_t standbymode;
+
+static void
+set_standby_mode(int mode) {
+  SET_PMS_DDR |= (1 << PMS_SET);
+  if (mode == STANDBY_MODE_OFF)
+    SET_PMS_PORT |= (1 << PMS_SET);
+  else if (mode == STANDBY_MODE_ON)
+    SET_PMS_PORT &= ~(1 << PMS_SET);
+  standbymode = mode;
+}
+static uint8_t
+get_standby_mode(void) {
+  return standbymode;
+}
+
 /*---------------------------------------------------------------------------*/
 extern process_event_t serial_raw_event_message;
 /*---------------------------------------------------------------------------*/
@@ -189,6 +208,7 @@ PROCESS_THREAD(pms5003_uart_process, ev, data)
 {
   static uint8_t buf[PMSBUFFER], *bufp;
   static int remain;
+  static unsigned long mode_secs;
 
   PROCESS_BEGIN();
 
@@ -199,16 +219,18 @@ PROCESS_THREAD(pms5003_uart_process, ev, data)
       leds_on(LEDS_RED);
     } while (ev != serial_raw_event_message);
  
+    bufp = buf;
     if (*((uint8_t *) data) != PRE1)
       continue;
+    *bufp++ = *((uint8_t *) data);
     do {
       PROCESS_WAIT_EVENT();
     } while (ev != serial_raw_event_message);
     if (*((uint8_t *) data) != PRE2)
       continue;
+    *bufp++ = *((uint8_t *) data);
 
-    /* Found preamble. Then get length */
-    bufp = buf;
+    /* Found preamble. Then get length (two bytes) */
     do {
       PROCESS_WAIT_EVENT();
     } while (ev != serial_raw_event_message);
@@ -217,8 +239,8 @@ PROCESS_THREAD(pms5003_uart_process, ev, data)
       PROCESS_WAIT_EVENT();
     } while (ev != serial_raw_event_message); 
     *bufp++ = *((uint8_t *) data);
-    /* Body length in first two bytes -- no of bytes that remain to get */
-    remain = (buf[0] << 8) + buf[1];
+    /* Get body length -- no of bytes that remain to get */
+    remain = (buf[2] << 8) + buf[3];
     if (remain < PMSMINBODYLEN || remain > PMSMAXBODYLEN) {
       invalid_frames++;
     }
@@ -229,12 +251,17 @@ PROCESS_THREAD(pms5003_uart_process, ev, data)
 	} while (ev != serial_raw_event_message);
 	*bufp++ = *((uint8_t *) data);
       }		   
-      if (pmsframe(buf)) {
-	/* Tell other processes there is new data */
-	if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
-	  PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
+      mode_secs = clock_seconds() - when_mode;
+      if ((get_standby_mode() == STANDBY_MODE_OFF) &&
+	  (mode_secs >= PMS_STARTUP_INTERVAL)) {
+	if (pmsframe(buf)) {
+	  /* Tell other processes there is new data */
+	  if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
+	    PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
+	  }
+	  set_standby_mode(STANDBY_MODE_ON);
+	  when_mode = clock_seconds();
 	}
-	
       }
     }
   }
@@ -242,57 +269,52 @@ PROCESS_THREAD(pms5003_uart_process, ev, data)
 }
 
 /*---------------------------------------------------------------------------*/
-static struct etimer i2ctimer;
 
-#define RUNNING 1
-#define IDLE 2
 PROCESS_THREAD(pms5003_i2c_process, ev, data)
 {
+  static struct etimer i2ctimer;
   static uint8_t buf[PMSBUFFER];
-  extern uint16_t i2c_probed; /* contiki_main.c: i2c devices we have probed */
   static uint16_t there = 0, notthere = 0;
+  static unsigned long mode_secs;
+  static uint8_t standbymode;
   
   PROCESS_BEGIN();
   etimer_set(&i2ctimer, CLOCK_SECOND*PMS_PROCESS_PERIOD);
+  set_standby_mode(STANDBY_MODE_ON);
+  when_mode = clock_seconds();
 
   /* Main loop */
   while(1) {
-
     PROCESS_YIELD();
 
     if((ev == PROCESS_EVENT_TIMER) && (data == &i2ctimer)) {
-      if (sensorstate == RUNNING) {
-	running_secs += PMS_PROCESS_PERIOD;
-	if (running_secs >= PMS_STARTUP_INTERVAL) {
-	  if (i2c_probe() & I2C_PMS5003) {
+      mode_secs = clock_seconds() - when_mode;
+      standbymode = get_standby_mode();
+      if (standbymode == STANDBY_MODE_OFF) {
+	if (mode_secs >= PMS_STARTUP_INTERVAL) {
+	  if (pms_probe()) {
 	    there++;
 	    i2c_read_mem(I2C_PMS5003_ADDR, 0, buf, PMSBUFFER);
 	    if (pmsframe(buf)) {
 	      printpm();
-	    }
-	    /* Tell other processes there is new data */
-	    if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
-	      PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
+	      /* Tell other processes there is new data */
+	      if (process_post(PROCESS_BROADCAST, pms5003_event, NULL) == PROCESS_ERR_OK) {
+		PROCESS_WAIT_EVENT_UNTIL(ev == pms5003_event);
+	      }
+	      set_standby_mode(STANDBY_MODE_ON);
+	      when_mode = clock_seconds();
 	    }
 	  }
-	  else
+	  else {
 	    notthere++;
-	  printf("off it turn\n");
-	  SET_PMS_DDR |= (1 << PMS_SET);
-	  SET_PMS_PORT &= ~(1 << PMS_SET);
-	  sensorstate = IDLE;
-	  idle_secs = 0;
+	  }
 	}
 	printf("Sensor timer, I2C there %d, not there %d\n", there, notthere);
       }
-      else if (sensorstate == IDLE) {
-	idle_secs += PMS_PROCESS_PERIOD;
-	if (idle_secs >= PMS_SAMPLE_PERIOD) {
-	  printf("Turn it on\n");
-	  SET_PMS_DDR |= (1 << PMS_SET);
-	  SET_PMS_PORT |= (1 << PMS_SET);
-	  sensorstate = RUNNING;
-	  running_secs = 0;
+      else if (standbymode == STANDBY_MODE_ON) {
+	if (mode_secs >= PMS_SAMPLE_PERIOD) {
+	  set_standby_mode(STANDBY_MODE_OFF);
+	  when_mode = clock_seconds();
 	}
       }
       etimer_reset(&i2ctimer);

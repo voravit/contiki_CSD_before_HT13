@@ -41,11 +41,14 @@
 #define SET_PMS_PORT PORTD  /* Serial Peripheral Interface */
 #define PMS_SET      6      /* PD6: OW2_PIN, Chip Select */
 
-/* Timer constants (secs) */
+/* How often sensor process runs (secs) */
 #define PMS_PROCESS_PERIOD	15
-#define PMS_SAMPLE_PERIOD       60
+/* How often sensor data is collected (secs) */
+#define PMS_SAMPLE_PERIOD       30
+/* Warmup time before sensor data can be read (secs) */
 #define PMS_STARTUP_INTERVAL    10
 
+/* Event to signal presense of new data */
 process_event_t pms5003_event;
 
 void pms5003_init();
