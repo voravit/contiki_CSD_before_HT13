@@ -41,6 +41,11 @@
 #define SET_PMS_PORT PORTD  /* Serial Peripheral Interface */
 #define PMS_SET      6      /* PD6: OW2_PIN, Chip Select */
 
+/* Timer constants (secs) */
+#define PMS_PROCESS_PERIOD	15
+#define PMS_SAMPLE_PERIOD       60
+#define PMS_STARTUP_INTERVAL    10
+
 process_event_t pms5003_event;
 
 void pms5003_init();
