@@ -61,8 +61,8 @@
 #endif
 #include "adc.h"
 #include "dev/pulse-sensor.h"
-#include "dev/pms5003.h"
-#include "dev/pms5003-sensor.h"
+#include "dev/pms5003/pms5003.h"
+#include "dev/pms5003/pms5003-sensor.h"
 #include "i2c.h"
 #include "dev/bme280/bme280-sensor.h"
 
@@ -154,6 +154,7 @@ static uint8_t state;
 #define ECHO_REQ_PAYLOAD_LEN   20
 /*---------------------------------------------------------------------------*/
 PROCESS_NAME(mqtt_demo_process);
+#define CHECKER
 #ifdef CHECKER
 PROCESS(mqtt_checker_process, "MQTT state checker for debug");
 
@@ -890,7 +891,7 @@ PROCESS_THREAD(mqtt_checker_process, ev, data)
 
   PROCESS_BEGIN();
   etimer_set(&checktimer, CLOCK_SECOND*30);
-  blinker();
+/*  blinker();*/
 
   /* Main loop */
   while(1) {
@@ -898,14 +899,24 @@ PROCESS_THREAD(mqtt_checker_process, ev, data)
     PROCESS_YIELD();
 
     if((ev == PROCESS_EVENT_TIMER) && (data == &checktimer)) {
-      printf("MQTT state %d\n", state);
-      etimer_reset(&checktimer);
+      printf("MQTT: state %d", state);
+      if (state == STATE_PUBLISHING) { 
+	printf(" - PUBLISHING ");
+	if(mqtt_ready(&conn) && conn.out_buffer_sent) {
+	  printf(" (ready)\n");
+	}
+	else {
+	  printf(" (not ready)\n");
+	}
+	etimer_reset(&checktimer);
+      }
     }
+#ifdef notdef
     if((ev == PROCESS_EVENT_TIMER) && (data == &blinktimer)) {
       blinker();
     }
+#endif
   }
-
   PROCESS_END();
 }
 

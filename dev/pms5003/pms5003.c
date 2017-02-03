@@ -47,7 +47,8 @@
 #include "dev/rs232.h"
 #include "dev/serial-line.h"
 #include "dev/serial-raw.h"
-#include "dev/pms5003.h"
+#include "dev/pms5003-arch.h"
+#include "pms5003.h"
 
 /*
  * Definitions for frames from PMSX003 sensors 
