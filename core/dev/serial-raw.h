@@ -56,15 +56,7 @@ extern process_event_t serial_raw_event_message;
  * This function is to be called from the actual RS232 driver to get
  * one byte of serial data input.
  *
- * For systems using low-power CPU modes, the return value of the
- * function can be used to determine if the CPU should be woken up or
- * not. If the function returns non-zero, the CPU should be powered
- * up. If the function returns zero, the CPU can continue to be
- * powered down.
- *
- * \param c The data that is received.
- *
- * \return Non-zero if the CPU should be powered up, zero otherwise.
+ * \return 1
  */
 
 int serial_raw_input_byte(unsigned char c);
