@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, Copyright Robert Olsson / Radio Sensors AB  
+ * Copyright (c) 2015, Copyright Robert Olsson
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,36 +29,30 @@
  * This file is part of the Contiki operating system.
  *
  *
- * Author  : Robert Olsson robert@radio-sensors.com
- * Created : 2015-11-22
+ * Author  : Peter Sjodin psj@kth.se
+ * Created : 2017-01-06
  */
 
-#ifndef PMS5003_H
-#define PMS5003_H
+#ifndef PMS5003_ARCH_H
+#define PMS5003_ARCH_H
+
+/**
+ * \file
+ *	Architecture-specific definitions for the Plantower PMS X003 dust sensors for avr-rss2
+ * \author
+ * 	Peter Sjodin, KTH
+ */
 
 /* AVR configuration for controlling dust sensor */
 #define SET_PMS_DDR  DDRD   /* Data Direction Register: Port B */
 #define SET_PMS_PORT PORTD  /* Serial Peripheral Interface */
 #define PMS_SET      6      /* PD6: OW2_PIN, Chip Select */
 
-/* How often sensor process runs (secs) */
-#define PMS_PROCESS_PERIOD	15
-/* How often sensor data is collected (secs) */
-#define PMS_SAMPLE_PERIOD       30
-/* Warmup time before sensor data can be read (secs) */
-#define PMS_STARTUP_INTERVAL    10
+/* Duty cycle mode */
+#define STANDBY_MODE_OFF	0
+#define STANDBY_MODE_ON		1
 
-/* Event to signal presense of new data */
-process_event_t pms5003_event;
-
-void pms5003_init();
-void pms5003_off();
-
-uint16_t pms5003_pm1();
-uint16_t pms5003_pm2_5();
-uint16_t pms5003_pm10();
-uint16_t pms5003_pm1_atm();
-uint16_t pms5003_pm2_5_atm();
-uint16_t pms5003_pm10_atm();
-
-#endif /* PMS5003_H */
+extern void pms5003_set_standby_mode(uint8_t mode);
+extern uint8_t pms5003_get_standby_mode(void);
+extern uint8_t pms5003_i2c_probe(void);
+#endif

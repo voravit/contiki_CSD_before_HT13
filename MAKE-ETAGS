@@ -1,0 +1,6 @@
+ find core -name '*.[ch]' | etags -
+ find cpu/avr/ -name '*.[ch]' | etags -a -
+ find dev -name '*.[ch]' | etags -a -
+ find lib -name '*.[ch]' | etags -a -
+ find platform/avr-rss2 -name '*.[ch]' | etags -a -
+find apps -name '*.[ch]' | etags -a -
