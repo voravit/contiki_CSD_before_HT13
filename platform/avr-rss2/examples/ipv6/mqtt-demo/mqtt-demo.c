@@ -463,6 +463,8 @@ subscribe(void)
   }
 }
 /*---------------------------------------------------------------------------*/
+#define MQTT_PUBLISH_SENML
+#ifdef MQTT_PUBLISH_IBMQS
 static void
 publish(void)
 {
@@ -614,6 +616,98 @@ publish(void)
 
   DBG("APP - Publish!\n");
 }
+
+#elif defined(MQTT_PUBLISH_SENML)
+
+#define PUTFMT(...) { \
+		len = snprintf(buf_ptr, remaining, __VA_ARGS__);	\
+		if (len < 0 || len >= remaining) { \
+			printf("Line %d: Buffer too short. Have %d, need %d + \\0", __LINE__, remaining, len); \
+			return; \
+		} \
+		remaining -= len; \
+		buf_ptr += len; \
+	}
+
+static void
+publish(void)
+{
+  /* Publish MQTT topic in SenML format */
+  int len;
+  int remaining = APP_BUFFER_SIZE;
+
+  seq_nr_value++;
+
+  buf_ptr = app_buffer;
+
+#if 1
+
+  uip_ipaddr_t loc_fipaddr; /* Link local address - use 8 last bytes for ID */
+  uint8_t *ll; 
+  uip_create_linklocal_prefix(&loc_fipaddr);
+  uip_ds6_set_addr_iid(&loc_fipaddr, &uip_lladdr);
+
+  PUTFMT("[{\"bn\":\"%s\",\"bt\":%lu}", "nodename", clock_seconds());
+  ll = (uint8_t *) &loc_fipaddr;
+  len = snprintf(buf_ptr, remaining,
+                 "{"
+                 "\"d\":{"
+                 "\"Name\":\"%s\","
+		 "\"ID\": \"%02x%02x%02x%02x%02x%02x%02x%02x\","
+                 "\"Seq #\":%d,"
+                 "\"Uptime (sec)\":%lu",
+                 BOARD_STRING,
+		 ll[8], ll[9], ll[10], ll[11], ll[12], ll[13], ll[14], ll[15],
+		 //ll[0], ll[1], ll[2], ll[3], ll[4], ll[5], ll[6], ll[7],
+		 seq_nr_value, clock_seconds());
+#endif
+  PUTFMT(",{\"seq_no\", \"v\":%d}", seq_nr_value);
+  PUTFMT(",{\"battery\", \"u\":\"V\",\"v\":%-5.2f}", ((double) battery_sensor.value(0)/1000.));
+
+  /* Put our Default route's string representation in a buffer */
+  char def_rt_str[64];
+  memset(def_rt_str, 0, sizeof(def_rt_str));
+  ipaddr_sprintf(def_rt_str, sizeof(def_rt_str), uip_ds6_defrt_choose());
+
+  PUTFMT(",{\"def route\",\v\":%s}", def_rt_str);
+  PUTFMT(",{\"rssi\",\"u\":\"dBm\",\v\":%d}", def_rt_rssi);
+
+#ifdef CO2
+  PUTFMT(",{\"co2\",\"u\":\"ppm\",\"v\":%d}", co2_sa_kxx_sensor.value(CO2_SA_KXX_CO2));
+#endif
+
+  PUTFMT(",{\"pm1_tsi\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM1));
+  PUTFMT(",{\"pm2_5_tsi\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM2_5));
+  PUTFMT(",{\"pm10_tsi\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM10));
+
+  PUTFMT(",{\"pm1_atm\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM1_ATM));
+  PUTFMT(",{\"pm2_5_atm\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM2_5_ATM));
+  PUTFMT(",{\"pm10_atm\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM10_ATM));  
+
+  extern uint32_t pms5003_valid_frames();
+  extern uint32_t pms5003_invalid_frames();
+
+  PUTFMT(",{\"valid frames\",\"v\":%lu}", pms5003_valid_frames());
+  PUTFMT(",{\"invalid frames\",\"v\":%lu}", pms5003_invalid_frames());
+
+  if( i2c_probed & I2C_BME280 ) {
+    PUTFMT(",{\"temp\",\"u\":\"Cel\",\"v\":%d}", bme280_sensor.value(BME280_SENSOR_TEMP));
+    PUTFMT(",{\"humidity\",\"u\":\"rh\",\"v\":%d}", bme280_sensor.value(BME280_SENSOR_HUMIDITY));
+    PUTFMT(",{\"pressure\",\"u\":\"hPa\",\"v\":%d.%d}", bme280_sensor.value(BME280_SENSOR_PRESSURE)/10,
+	   bme280_sensor.value(BME280_SENSOR_PRESSURE) % 10);
+  }
+
+  PUTFMT("]");
+
+  printf("MQTT publish %d:\n", seq_nr_value);
+  printf("%s\n", app_buffer);
+  mqtt_publish(&conn, NULL, pub_topic, (uint8_t *)app_buffer,
+               strlen(app_buffer), MQTT_QOS_LEVEL_0, MQTT_RETAIN_OFF);
+
+  DBG("APP - Publish!\n");
+}
+#endif
+
 /*---------------------------------------------------------------------------*/
 static void
 connect_to_broker(void)
@@ -909,6 +1003,9 @@ PROCESS_THREAD(mqtt_checker_process, ev, data)
 	  printf(" (not ready)\n");
 	}
 	etimer_reset(&checktimer);
+      }
+      else {
+	printf("\n");
       }
     }
 #ifdef notdef
