@@ -217,7 +217,7 @@ static uint16_t seq_nr_value = 0;
 /* Parent RSSI functionality */
 static struct uip_icmp6_echo_reply_notification echo_reply_notification;
 static struct etimer echo_request_timer;
-static int def_rt_rssi = 0;
+static unsigned int def_rt_rssi = 0;
 /*---------------------------------------------------------------------------*/
 static mqtt_client_config_t conf;
 /*---------------------------------------------------------------------------*/
@@ -633,6 +633,8 @@ static void
 publish(void)
 {
   /* Publish MQTT topic in SenML format */
+  /* Use device URN as base name -- draft-arkko-core-dev-urn-03 */
+
   int len;
   int remaining = APP_BUFFER_SIZE;
 
@@ -640,60 +642,48 @@ publish(void)
 
   buf_ptr = app_buffer;
 
-#if 1
-
   uip_ipaddr_t loc_fipaddr; /* Link local address - use 8 last bytes for ID */
   uint8_t *ll; 
   uip_create_linklocal_prefix(&loc_fipaddr);
   uip_ds6_set_addr_iid(&loc_fipaddr, &uip_lladdr);
-
-  PUTFMT("[{\"bn\":\"%s\",\"bt\":%lu}", "nodename", clock_seconds());
   ll = (uint8_t *) &loc_fipaddr;
-  len = snprintf(buf_ptr, remaining,
-                 "{"
-                 "\"d\":{"
-                 "\"Name\":\"%s\","
-		 "\"ID\": \"%02x%02x%02x%02x%02x%02x%02x%02x\","
-                 "\"Seq #\":%d,"
-                 "\"Uptime (sec)\":%lu",
-                 BOARD_STRING,
-		 ll[8], ll[9], ll[10], ll[11], ll[12], ll[13], ll[14], ll[15],
-		 //ll[0], ll[1], ll[2], ll[3], ll[4], ll[5], ll[6], ll[7],
-		 seq_nr_value, clock_seconds());
-#endif
-  PUTFMT(",{\"seq_no\", \"v\":%d}", seq_nr_value);
-  PUTFMT(",{\"battery\", \"u\":\"V\",\"v\":%-5.2f}", ((double) battery_sensor.value(0)/1000.));
+  ll = (uint8_t *) &linkaddr_node_addr.u8;
+
+  PUTFMT("[{\"bn\":\"urn:dev:mac:\"%02x%02x%02x%02x%02x%02x%02x%02x;\"", ll[8], ll[9], ll[10], ll[11], ll[12], ll[13], ll[14], ll[15]);
+  PUTFMT(",\"bt\":%lu}", clock_seconds());
+  PUTFMT(",{\"n\":\"seq_no\", \"v\":%d}", seq_nr_value);
+  PUTFMT(",{\"n\":\"battery\", \"u\":\"V\",\"v\":%-5.2f}", ((double) battery_sensor.value(0)/1000.));
 
   /* Put our Default route's string representation in a buffer */
   char def_rt_str[64];
   memset(def_rt_str, 0, sizeof(def_rt_str));
   ipaddr_sprintf(def_rt_str, sizeof(def_rt_str), uip_ds6_defrt_choose());
 
-  PUTFMT(",{\"def route\",\v\":%s}", def_rt_str);
-  PUTFMT(",{\"rssi\",\"u\":\"dBm\",\v\":%d}", def_rt_rssi);
+  PUTFMT(",{\"n\":\"def_route\",\v\":%s}", def_rt_str);
+  PUTFMT(",{\"n\":\"rssi\",\"u\":\"dBm\",\v\":%d}", def_rt_rssi);
 
 #ifdef CO2
-  PUTFMT(",{\"co2\",\"u\":\"ppm\",\"v\":%d}", co2_sa_kxx_sensor.value(CO2_SA_KXX_CO2));
+  PUTFMT(",{\"n\":\"co2\",\"u\":\"ppm\",\"v\":%d}", co2_sa_kxx_sensor.value(CO2_SA_KXX_CO2));
 #endif
 
-  PUTFMT(",{\"pm1_tsi\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM1));
-  PUTFMT(",{\"pm2_5_tsi\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM2_5));
-  PUTFMT(",{\"pm10_tsi\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM10));
+  PUTFMT(",{\"n\":\"pms5003;tsi;pm1\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM1));
+  PUTFMT(",{\"n\":\"pms5003;tsi;pm2_5\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM2_5));
+  PUTFMT(",{\"n\":\"pms5003;tsi;pm10\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM10));
 
-  PUTFMT(",{\"pm1_atm\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM1_ATM));
-  PUTFMT(",{\"pm2_5_atm\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM2_5_ATM));
-  PUTFMT(",{\"pm10_atm\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM10_ATM));  
+  PUTFMT(",{\"n\":\"pms5003;atm;pm1\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM1_ATM));
+  PUTFMT(",{\"n\":\"pms5003;atm;pm2_5\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM2_5_ATM));
+  PUTFMT(",{\"n\":\"pms5003;atm;pm10\",\"u\":\"ug/m3\",\"v\":%d}", pms5003_sensor.value(PMS5003_SENSOR_PM10_ATM));  
 
   extern uint32_t pms5003_valid_frames();
   extern uint32_t pms5003_invalid_frames();
 
-  PUTFMT(",{\"valid frames\",\"v\":%lu}", pms5003_valid_frames());
-  PUTFMT(",{\"invalid frames\",\"v\":%lu}", pms5003_invalid_frames());
+  PUTFMT(",{\"n\":\"pms5003;valid_frames\",\"v\":%lu}", pms5003_valid_frames());
+  PUTFMT(",{\"n\":\"pms5003;invalid_frames\",\"v\":%lu}", pms5003_invalid_frames());
 
   if( i2c_probed & I2C_BME280 ) {
-    PUTFMT(",{\"temp\",\"u\":\"Cel\",\"v\":%d}", bme280_sensor.value(BME280_SENSOR_TEMP));
-    PUTFMT(",{\"humidity\",\"u\":\"rh\",\"v\":%d}", bme280_sensor.value(BME280_SENSOR_HUMIDITY));
-    PUTFMT(",{\"pressure\",\"u\":\"hPa\",\"v\":%d.%d}", bme280_sensor.value(BME280_SENSOR_PRESSURE)/10,
+    PUTFMT(",{\"n\":\"bme280;temp\",\"u\":\"Cel\",\"v\":%d}", bme280_sensor.value(BME280_SENSOR_TEMP));
+    PUTFMT(",{\"n\":\"bme280;humidity\",\"u\":\"%%RH\",\"v\":%d}", bme280_sensor.value(BME280_SENSOR_HUMIDITY));
+    PUTFMT(",{\"n\":\"bme280;pressure\",\"u\":\"hPa\",\"v\":%d.%d}", bme280_sensor.value(BME280_SENSOR_PRESSURE)/10,
 	   bme280_sensor.value(BME280_SENSOR_PRESSURE) % 10);
   }
 
