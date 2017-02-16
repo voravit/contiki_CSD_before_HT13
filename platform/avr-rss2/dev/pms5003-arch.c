@@ -1,7 +1,7 @@
 #include "contiki.h"
 #include "i2c.h"
 #include "watchdog.h"
-#include "dev/pms5003.h"
+#include "dev/pms5003/pms5003.h"
 #include "pms5003-arch.h"
 
 static uint8_t standbymode;
