@@ -272,7 +272,8 @@ PROCESS_THREAD(pms5003_timer_process, ev, data)
   etimer_set(&pmstimer, CLOCK_SECOND*PMS_PROCESS_PERIOD);
   pms5003_set_standby_mode(STANDBY_MODE_ON);
   when_mode = clock_seconds();
-
+  pms5003_event = process_alloc_event();
+	  
   /* Main loop */
   while(1) {
     PROCESS_YIELD();
