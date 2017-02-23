@@ -217,7 +217,7 @@ static uint16_t seq_nr_value = 0;
 /* Parent RSSI functionality */
 static struct uip_icmp6_echo_reply_notification echo_reply_notification;
 static struct etimer echo_request_timer;
-static unsigned int def_rt_rssi = 0;
+static unsigned long def_rt_rssi = 0;
 /*---------------------------------------------------------------------------*/
 static mqtt_client_config_t conf;
 /*---------------------------------------------------------------------------*/
@@ -290,6 +290,13 @@ pub_handler(const char *topic, uint16_t topic_len, const uint8_t *chunk,
     return;
   }
 }
+static struct mqtt_app_statistics {
+  unsigned int connected;
+  unsigned int disconnected;
+  unsigned int published;
+  unsigned int pubacked;
+} mqtt_stats = {0, 0, 0, 0};
+
 /*---------------------------------------------------------------------------*/
 static void
 mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
@@ -299,6 +306,7 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
     DBG("APP - Application has a MQTT connection\n");
     timer_set(&connection_life, CONNECTION_STABLE_TIME);
     state = STATE_CONNECTED;
+    mqtt_stats.connected++;
     break;
   }
   case MQTT_EVENT_DISCONNECTED: {
@@ -306,6 +314,7 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
 
     state = STATE_DISCONNECTED;
     process_poll(&mqtt_demo_process);
+    mqtt_stats.disconnected++;
     break;
   }
   case MQTT_EVENT_PUBLISH: {
@@ -333,6 +342,7 @@ mqtt_event(struct mqtt_connection *m, mqtt_event_t event, void *data)
   }
   case MQTT_EVENT_PUBACK: {
     DBG("APP - Publishing complete.\n");
+    mqtt_stats.pubacked++;
     break;
   }
   default:
@@ -613,7 +623,7 @@ publish(void)
   printf("MQTT publish %d:\n", seq_nr_value);
   mqtt_publish(&conn, NULL, pub_topic, (uint8_t *)app_buffer,
                strlen(app_buffer), MQTT_QOS_LEVEL_0, MQTT_RETAIN_OFF);
-
+  mqtt_stats.published++;
   DBG("APP - Publish!\n");
 }
 
@@ -660,7 +670,7 @@ publish(void)
   ipaddr_sprintf(def_rt_str, sizeof(def_rt_str), uip_ds6_defrt_choose());
 
   PUTFMT(",{\"n\":\"def_route\",\v\":%s}", def_rt_str);
-  PUTFMT(",{\"n\":\"rssi\",\"u\":\"dBm\",\v\":%d}", def_rt_rssi);
+  PUTFMT(",{\"n\":\"rssi\",\"u\":\"dBm\",\v\":%lu}", def_rt_rssi);
 
 #ifdef CO2
   PUTFMT(",{\"n\":\"co2\",\"u\":\"ppm\",\"v\":%d}", co2_sa_kxx_sensor.value(CO2_SA_KXX_CO2));
@@ -929,50 +939,25 @@ PROCESS_THREAD(mqtt_demo_process, ev, data)
 
 #ifdef CHECKER
 static struct etimer checktimer;
-static struct etimer blinktimer;
 
-#define BLINKON 1
-#define BLINKOFF 2
-#define BLINKDELAY 3
-#define TIMEBLINKON CLOCK_SECOND/2
-#define TIMEBLINKOFF CLOCK_SECOND/2
-#define TIMEBLINKDELAY CLOCK_SECOND*10
+#define WATCHDOG_INTERVAL (CLOCK_SECOND*30)
+/* Watchdogs in WATCHDOG_INTERVAL units: */
+#define STALE_PUBLISHING_WATCHDOG 10
+#define STALE_CONNECTING_WATCHDOG 20
 
-static uint8_t blinkstate = BLINKDELAY;
-static uint8_t numblinks;
-
-void blinker() {
-  switch (blinkstate) {
-  case BLINKDELAY:
-    numblinks = state;
-    leds_on(LEDS_RED);
-    etimer_set(&blinktimer, TIMEBLINKON);
-    blinkstate = BLINKON;
-    break;
-  case BLINKON:
-    leds_off(LEDS_RED);
-    if (--numblinks == 0) { /* Done blinking for now. Delay a while */
-      etimer_set(&blinktimer, TIMEBLINKDELAY);
-      blinkstate = BLINKDELAY;
-    }
-    else {
-      etimer_set(&blinktimer, TIMEBLINKOFF);
-      blinkstate = BLINKOFF;
-    }
-    break;
-  case BLINKOFF:
-    leds_on(LEDS_RED);
-    etimer_set(&blinktimer, TIMEBLINKON);
-    blinkstate = BLINKON;
-  }
-}
+static struct {
+  unsigned int stale_publishing; 
+  unsigned int stale_connecting;
+  unsigned int closed_connection;
+} watchdog_stats = {0, 0, 0};
 
 PROCESS_THREAD(mqtt_checker_process, ev, data)
 {
+  static uint16_t stale_publishing = 0, stale_connecting = 0;
+  static uint16_t seen_seq_nr_value = 0;
 
   PROCESS_BEGIN();
-  etimer_set(&checktimer, CLOCK_SECOND*30);
-/*  blinker();*/
+  etimer_set(&checktimer, WATCHDOG_INTERVAL);
 
   /* Main loop */
   while(1) {
@@ -980,26 +965,43 @@ PROCESS_THREAD(mqtt_checker_process, ev, data)
     PROCESS_YIELD();
 
     if((ev == PROCESS_EVENT_TIMER) && (data == &checktimer)) {
-      printf("MQTT: state %d", state);
+      printf("MQTT: state %d conn.state %d", state, conn.state);
       if (state == STATE_PUBLISHING) { 
-	printf(" - PUBLISHING ");
-	if(mqtt_ready(&conn) && conn.out_buffer_sent) {
-	  printf(" (ready)\n");
-	}
-	else {
-	  printf(" (not ready)\n");
-	}
-	etimer_reset(&checktimer);
+       stale_connecting = 0;
+       if (seq_nr_value > seen_seq_nr_value) {
+         stale_publishing = 0;
+       }
+       else {
+         stale_publishing++;
+         if (stale_publishing > STALE_PUBLISHING_WATCHDOG) {
+           /* In publishing state, but nothing published for a while. 
+            * Milder reset -- call mqtt_disconnect() to trigger mqtt to restart the session
+            */
+           mqtt_disconnect(&conn);
+           stale_publishing = 0;
+	   watchdog_stats.stale_publishing++;
+         }
+       }
+       seen_seq_nr_value = seq_nr_value;
       }
       else {
-	printf("\n");
+	stale_connecting++;
+       if (stale_connecting > STALE_CONNECTING_WATCHDOG) {
+         if(conn.state > MQTT_CONN_STATE_NOT_CONNECTED) {
+           /* Waiting for mqtt connection, but nothing happened for a while.
+            * Trigger communication error by closing TCP socket 
+            */
+           tcp_socket_close(&conn.socket);
+	   watchdog_stats.stale_connecting++;
+         }       
+         else {
+	   watchdog_stats.closed_connection++;	   
+	 }
+         stale_connecting = 0;
+       }
       }
+      etimer_reset(&checktimer);
     }
-#ifdef notdef
-    if((ev == PROCESS_EVENT_TIMER) && (data == &blinktimer)) {
-      blinker();
-    }
-#endif
   }
   PROCESS_END();
 }
