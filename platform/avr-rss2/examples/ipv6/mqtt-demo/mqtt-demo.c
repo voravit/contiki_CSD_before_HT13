@@ -181,7 +181,7 @@ typedef struct mqtt_client_config {
 } mqtt_client_config_t;
 /*---------------------------------------------------------------------------*/
 /* Maximum TCP segment size for outgoing segments of our socket */
-#define MAX_TCP_SEGMENT_SIZE  62  
+#define MAX_TCP_SEGMENT_SIZE  32  
 /*---------------------------------------------------------------------------*/
 #define STATUS_LED LEDS_YELLOW
 /*---------------------------------------------------------------------------*/
@@ -804,9 +804,6 @@ PROCESS_THREAD(mqtt_demo_process, ev, data)
   //NETSTACK_MAC.off(1);
 
   printf("MQTT Demo Process\n");
-
-  rpl_set_mode(RPL_MODE_LEAF);
-  printf("RPL mode=%d\n", rpl_get_mode());
 
   if(init_config() != 1) {
     PROCESS_EXIT();
