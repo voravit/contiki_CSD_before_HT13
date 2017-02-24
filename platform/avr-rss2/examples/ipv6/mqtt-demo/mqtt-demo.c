@@ -659,7 +659,7 @@ publish(void)
   ll = (uint8_t *) &loc_fipaddr;
   ll = (uint8_t *) &linkaddr_node_addr.u8;
 
-  PUTFMT("[{\"bn\":\"urn:dev:mac:\"%02x%02x%02x%02x%02x%02x%02x%02x;\"", ll[8], ll[9], ll[10], ll[11], ll[12], ll[13], ll[14], ll[15]);
+  PUTFMT("[{\"bn\":\"urn:dev:mac:%02x%02x%02x%02x%02x%02x%02x%02x;\"", ll[0], ll[1], ll[2], ll[3], ll[4], ll[5], ll[6], ll[7]);
   PUTFMT(",\"bt\":%lu}", clock_seconds());
   PUTFMT(",{\"n\":\"seq_no\", \"v\":%d}", seq_nr_value);
   PUTFMT(",{\"n\":\"battery\", \"u\":\"V\",\"v\":%-5.2f}", ((double) battery_sensor.value(0)/1000.));
@@ -669,8 +669,8 @@ publish(void)
   memset(def_rt_str, 0, sizeof(def_rt_str));
   ipaddr_sprintf(def_rt_str, sizeof(def_rt_str), uip_ds6_defrt_choose());
 
-  PUTFMT(",{\"n\":\"def_route\",\v\":%s}", def_rt_str);
-  PUTFMT(",{\"n\":\"rssi\",\"u\":\"dBm\",\v\":%lu}", def_rt_rssi);
+  PUTFMT(",{\"n\":\"def_route\",\"v\":%s}", def_rt_str);
+  PUTFMT(",{\"n\":\"rssi\",\"u\":\"dBm\",\"v\":%lu}", def_rt_rssi);
 
 #ifdef CO2
   PUTFMT(",{\"n\":\"co2\",\"u\":\"ppm\",\"v\":%d}", co2_sa_kxx_sensor.value(CO2_SA_KXX_CO2));
